@@ -1,0 +1,262 @@
+<?php
+
+declare(strict_types=1);
+
+namespace BetterData\Internal;
+
+use BackedEnum;
+use BetterData\Attribute\MetaKey;
+use BetterData\DataObject;
+use BetterData\Validation\Rule\Email;
+use BetterData\Validation\Rule\Max;
+use BetterData\Validation\Rule\MaxLength;
+use BetterData\Validation\Rule\Min;
+use BetterData\Validation\Rule\MinLength;
+use BetterData\Validation\Rule\OneOf;
+use BetterData\Validation\Rule\Regex;
+use BetterData\Validation\Rule\Required;
+use BetterData\Validation\Rule\Url;
+use BetterData\Validation\Rule\Uuid;
+use DateTimeInterface;
+use ReflectionAttribute;
+use ReflectionClass;
+use ReflectionNamedType;
+use ReflectionParameter;
+
+/**
+ * Derives a JSON Schema from a DataObject class.
+ *
+ * Infers property types from PHP type declarations, then layers on
+ * constraints from `#[Rule\...]` attributes:
+ *
+ *   Email     → format: email
+ *   Url       → format: uri
+ *   Uuid      → format: uuid
+ *   MinLength → minLength
+ *   MaxLength → maxLength
+ *   Min       → minimum
+ *   Max       → maximum
+ *   Regex     → pattern
+ *   OneOf     → enum
+ *   Required  → field name added to top-level "required" list
+ *
+ * Output shape is `register_rest_route()`-compatible (feed it to `args`)
+ * and also a valid JSON Schema draft-compatible document.
+ *
+ * @internal Not part of the public API — called from `MetaKeyRegistry`.
+ */
+final class RestSchemaBuilder
+{
+    /**
+     * @param class-string<DataObject> $dtoClass
+     * @return array<string, mixed>
+     */
+    public static function build(string $dtoClass): array
+    {
+        $reflection = new ReflectionClass($dtoClass);
+        $constructor = $reflection->getConstructor();
+
+        $properties = [];
+        $required = [];
+
+        if ($constructor !== null) {
+            foreach ($constructor->getParameters() as $parameter) {
+                $name = $parameter->getName();
+                $properties[$name] = self::buildProperty($parameter);
+
+                if (self::isRequired($parameter)) {
+                    $required[] = $name;
+                }
+            }
+        }
+
+        $schema = [
+            'type' => 'object',
+            'properties' => $properties,
+        ];
+
+        if ($required !== []) {
+            $schema['required'] = $required;
+        }
+
+        return $schema;
+    }
+
+    /**
+     * Build the argument subset passed to `register_post_meta()`'s
+     * `show_in_rest.schema` slot for a single meta-backed property.
+     *
+     * @return array<string, mixed>
+     */
+    public static function buildMetaSchema(ReflectionParameter $parameter, MetaKey $meta): array
+    {
+        $schema = self::buildProperty($parameter);
+        if ($meta->type !== null) {
+            $schema['type'] = $meta->type;
+        }
+        if ($meta->description !== null) {
+            $schema['description'] = $meta->description;
+        }
+
+        return $schema;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function buildProperty(ReflectionParameter $parameter): array
+    {
+        $type = $parameter->getType();
+        $schema = self::inferBaseSchema($type);
+
+        foreach ($parameter->getAttributes() as $attrReflection) {
+            self::applyRuleAttribute($attrReflection, $schema);
+        }
+
+        return $schema;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function inferBaseSchema(?\ReflectionType $type): array
+    {
+        if (!$type instanceof ReflectionNamedType) {
+            return ['type' => ['string', 'null']];
+        }
+
+        $name = $type->getName();
+        $nullable = $type->allowsNull();
+
+        if ($type->isBuiltin()) {
+            $jsonType = match ($name) {
+                'int' => 'integer',
+                'float' => 'number',
+                'bool' => 'boolean',
+                'array' => 'array',
+                'string' => 'string',
+                default => 'string',
+            };
+
+            return $nullable
+                ? ['type' => [$jsonType, 'null']]
+                : ['type' => $jsonType];
+        }
+
+        if (is_subclass_of($name, BackedEnum::class)) {
+            $values = [];
+            foreach ($name::cases() as $case) {
+                /** @var BackedEnum $case */
+                $values[] = $case->value;
+            }
+            $schema = ['enum' => $values];
+            if (is_string($values[0] ?? null)) {
+                $schema['type'] = $nullable ? ['string', 'null'] : 'string';
+            } elseif (is_int($values[0] ?? null)) {
+                $schema['type'] = $nullable ? ['integer', 'null'] : 'integer';
+            }
+
+            return $schema;
+        }
+
+        if ($name === DateTimeInterface::class || is_subclass_of($name, DateTimeInterface::class)) {
+            return [
+                'type' => $nullable ? ['string', 'null'] : 'string',
+                'format' => 'date-time',
+            ];
+        }
+
+        if (is_subclass_of($name, DataObject::class)) {
+            /** @var class-string<DataObject> $name */
+            $nested = self::build($name);
+            if ($nullable) {
+                $nested['type'] = [$nested['type'], 'null'];
+            }
+
+            return $nested;
+        }
+
+        return $nullable ? ['type' => ['string', 'null']] : ['type' => 'string'];
+    }
+
+    /**
+     * @param ReflectionAttribute<object> $attrReflection
+     * @param array<string, mixed>        $schema
+     */
+    private static function applyRuleAttribute(ReflectionAttribute $attrReflection, array &$schema): void
+    {
+        $name = $attrReflection->getName();
+
+        switch ($name) {
+            case Email::class:
+                $schema['format'] = 'email';
+                break;
+            case Url::class:
+                $schema['format'] = 'uri';
+                break;
+            case Uuid::class:
+                $schema['format'] = 'uuid';
+                break;
+            case MinLength::class:
+                /** @var MinLength $rule */
+                $rule = $attrReflection->newInstance();
+                $schema['minLength'] = $rule->min;
+                break;
+            case MaxLength::class:
+                /** @var MaxLength $rule */
+                $rule = $attrReflection->newInstance();
+                $schema['maxLength'] = $rule->max;
+                break;
+            case Min::class:
+                /** @var Min $rule */
+                $rule = $attrReflection->newInstance();
+                $schema['minimum'] = $rule->min;
+                break;
+            case Max::class:
+                /** @var Max $rule */
+                $rule = $attrReflection->newInstance();
+                $schema['maximum'] = $rule->max;
+                break;
+            case Regex::class:
+                /** @var Regex $rule */
+                $rule = $attrReflection->newInstance();
+                $schema['pattern'] = self::stripRegexDelimiters($rule->pattern);
+                break;
+            case OneOf::class:
+                /** @var OneOf $rule */
+                $rule = $attrReflection->newInstance();
+                $schema['enum'] = array_values($rule->allowed);
+                break;
+        }
+    }
+
+    private static function isRequired(ReflectionParameter $parameter): bool
+    {
+        foreach ($parameter->getAttributes(Required::class) as $_) {
+            return true;
+        }
+        if ($parameter->isDefaultValueAvailable()) {
+            return false;
+        }
+        $type = $parameter->getType();
+        if ($type !== null && $type->allowsNull()) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function stripRegexDelimiters(string $pattern): string
+    {
+        if (strlen($pattern) < 2) {
+            return $pattern;
+        }
+        $delimiter = $pattern[0];
+        $last = strrpos($pattern, $delimiter);
+        if ($last === false || $last === 0) {
+            return $pattern;
+        }
+
+        return substr($pattern, 1, $last - 1);
+    }
+}
