@@ -108,7 +108,17 @@ final class TypeCoercer
             }
 
             /** @var class-string<BackedEnum> $target */
-            return $target::from($value);
+            try {
+                return $target::from($value);
+            } catch (\ValueError $e) {
+                throw TypeCoercionException::for(
+                    $dataObjectClass,
+                    $fieldName,
+                    $target,
+                    $value,
+                    $e,
+                );
+            }
         }
 
         if ($target === DateTimeImmutable::class || is_subclass_of($target, DateTimeInterface::class)) {
