@@ -115,6 +115,17 @@ final class CollectionPresenter
         return $this;
     }
 
+    public function formatCurrency(
+        string $field,
+        ?string $as = null,
+        ?string $currency = null,
+        bool $html = false,
+    ): self {
+        $this->configurers[] = static fn (Presenter $p): Presenter => $p->formatCurrency($field, $as, $currency, $html);
+
+        return $this;
+    }
+
     /**
      * @return list<array<string, mixed>>
      */

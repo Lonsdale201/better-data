@@ -36,7 +36,7 @@
   },
   "scripts": {
     "test": "phpunit -c phpunit.xml.dist",
-    "analyse": "phpstan analyse --memory-limit=512M",
+    "analyse": "phpstan analyse --memory-limit=1G",
     "cs-fix": "php-cs-fixer fix --config=.php-cs-fixer.php",
     "cs-check": "php-cs-fixer fix --dry-run --diff --config=.php-cs-fixer.php"
   },

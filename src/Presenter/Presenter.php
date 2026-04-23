@@ -6,6 +6,7 @@ namespace BetterData\Presenter;
 
 use BackedEnum;
 use BetterData\DataObject;
+use BetterData\Presenter\Formatter\CurrencyFormatter;
 use BetterData\Presenter\Formatter\DateTimeFormatter;
 use DateTimeInterface;
 use ReflectionClass;
@@ -240,6 +241,34 @@ class Presenter
             }
 
             return (new DateTimeFormatter($ctx))->format($value, $format);
+        };
+
+        return $this;
+    }
+
+    /**
+     * Format a numeric property through the `CurrencyFormatter`
+     * (WooCommerce-aware when available, plain fallback otherwise).
+     *
+     * If `$as` is null, the original value is replaced; else a new field
+     * is added under `$as`. `$currency` overrides the default/WC code
+     * per call. `$html` emits the WC HTML wrapper when WC is loaded.
+     */
+    public function formatCurrency(
+        string $field,
+        ?string $as = null,
+        ?string $currency = null,
+        bool $html = false,
+    ): static {
+        $target = $as ?? $field;
+        $this->computed[$target] = function (DataObject $dto, PresentationContext $ctx) use ($field, $currency, $html): ?string {
+            $value = $dto->{$field} ?? null;
+            if (!is_int($value) && !is_float($value)) {
+                return null;
+            }
+            $formatter = new CurrencyFormatter($ctx, $currency);
+
+            return $html ? $formatter->formatHtml($value, $currency) : $formatter->format($value, $currency);
         };
 
         return $this;
