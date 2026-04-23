@@ -7,6 +7,9 @@ namespace BetterData;
 use BackedEnum;
 use BetterData\Exception\MissingRequiredFieldException;
 use BetterData\Internal\TypeCoercer;
+use BetterData\Validation\BuiltInValidator;
+use BetterData\Validation\ValidationEngineInterface;
+use BetterData\Validation\ValidationResult;
 use DateTimeInterface;
 use ReflectionClass;
 
@@ -112,6 +115,35 @@ abstract readonly class DataObject
     public function with(array $changes): static
     {
         return static::fromArray(array_replace($this->toArray(), $changes));
+    }
+
+    /**
+     * Validate this DataObject and return a ValidationResult.
+     *
+     * Hydration stays throw-for-shape; business-rule validation is a
+     * separate, explicit step. Pass a custom engine to swap out the
+     * built-in attribute-reading validator (e.g. Symfony Validator adapter).
+     */
+    public function validate(?ValidationEngineInterface $engine = null): ValidationResult
+    {
+        return ($engine ?? new BuiltInValidator())->validate($this);
+    }
+
+    /**
+     * Hydrate and validate in one step — the throw-early shortcut.
+     *
+     * Throws `TypeCoercionException` / `MissingRequiredFieldException`
+     * from hydration as usual, then `ValidationException` if any rule
+     * fails.
+     *
+     * @param array<string, mixed> $data
+     */
+    public static function fromArrayValidated(array $data, ?ValidationEngineInterface $engine = null): static
+    {
+        $dto = static::fromArray($data);
+        $dto->validate($engine)->throwIfInvalid();
+
+        return $dto;
     }
 
     private static function serializeValue(mixed $value): mixed
