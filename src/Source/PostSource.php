@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace BetterData\Source;
 
+use BetterData\Attribute\PostField;
 use BetterData\DataObject;
 use BetterData\Exception\PostNotFoundException;
-use BetterData\Internal\PostHydrationEngine;
+use BetterData\Internal\AttributeDrivenHydrator;
 
 /**
  * Hydrates DataObjects from WordPress posts and their meta.
@@ -28,6 +29,35 @@ use BetterData\Internal\PostHydrationEngine;
 final class PostSource
 {
     /**
+     * @var list<string>
+     */
+    private const POST_FIELDS = [
+        'ID',
+        'post_author',
+        'post_date',
+        'post_date_gmt',
+        'post_content',
+        'post_title',
+        'post_excerpt',
+        'post_status',
+        'comment_status',
+        'ping_status',
+        'post_password',
+        'post_name',
+        'to_ping',
+        'pinged',
+        'post_modified',
+        'post_modified_gmt',
+        'post_content_filtered',
+        'post_parent',
+        'guid',
+        'menu_order',
+        'post_type',
+        'post_mime_type',
+        'comment_count',
+    ];
+
+    /**
      * @template T of DataObject
      * @param int|\WP_Post    $post
      * @param class-string<T> $dtoClass
@@ -44,10 +74,13 @@ final class PostSource
         $postFields = (array) $wpPost;
         $postId = (int) $wpPost->ID;
 
-        return PostHydrationEngine::hydrate(
+        return AttributeDrivenHydrator::hydrate(
             $dtoClass,
             $postFields,
+            self::POST_FIELDS,
+            PostField::class,
             static fn (string $key): mixed => \get_post_meta($postId, $key, true),
+            ['id' => 'ID'],
         );
     }
 

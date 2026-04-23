@@ -70,4 +70,50 @@ trait HasWpSources
     {
         return RowSource::hydrateMany($rows, static::class);
     }
+
+    /**
+     * @return static
+     */
+    public static function fromUser(int|\WP_User $user): DataObject
+    {
+        return UserSource::hydrate($user, static::class);
+    }
+
+    /**
+     * @param list<int> $userIds
+     * @return list<static>
+     */
+    public static function fromUsers(array $userIds): array
+    {
+        return UserSource::hydrateMany($userIds, static::class);
+    }
+
+    /**
+     * @return static
+     */
+    public static function fromTerm(int|\WP_Term $term): DataObject
+    {
+        return TermSource::hydrate($term, static::class);
+    }
+
+    /**
+     * @param list<int> $termIds
+     * @return list<static>
+     */
+    public static function fromTerms(array $termIds): array
+    {
+        return TermSource::hydrateMany($termIds, static::class);
+    }
+
+    /**
+     * Convenience shortcut for the no-guard case: hydrates straight from
+     * the request parameters. If nonce or capability guards are needed,
+     * call `RequestSource::from($request)` directly to build a guarded chain.
+     *
+     * @return static
+     */
+    public static function fromRequest(\WP_REST_Request $request): DataObject
+    {
+        return RequestSource::from($request)->into(static::class);
+    }
 }
