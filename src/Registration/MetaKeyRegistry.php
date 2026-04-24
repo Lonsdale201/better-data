@@ -83,12 +83,44 @@ final class MetaKeyRegistry
         $registered = [];
         foreach (self::collectMetaParameters($dtoClass) as [$parameter, $meta]) {
             self::guardProtectedMetaShowInRest($meta);
+            self::guardEncryptedShowInRest($meta);
             $args = self::buildRegisterArgs($parameter, $meta, $objectType, $subtype);
             \register_meta($objectType, $meta->key, $args);
             $registered[] = $meta->key;
         }
 
         return $registered;
+    }
+
+    /**
+     * `encrypt: true` + `showInRest: true` is dangerous: the sink path
+     * encrypts on write (good) but WP core's auto REST reader calls
+     * `get_post_meta` directly (no hook into EncryptionEngine), so the
+     * `bd:v1:` ciphertext would be returned verbatim to any REST caller
+     * with read access. Emit `_doing_it_wrong` so plugin authors catch
+     * the mis-configuration before it reaches production.
+     */
+    private static function guardEncryptedShowInRest(MetaKey $meta): void
+    {
+        if (!$meta->encrypt || !$meta->showInRest) {
+            return;
+        }
+
+        if (\function_exists('_doing_it_wrong')) {
+            \_doing_it_wrong(
+                'BetterData\\Registration\\MetaKeyRegistry::register',
+                sprintf(
+                    'Meta key "%s" declares both `encrypt: true` AND `showInRest: true`. '
+                    . 'WP core\'s REST read path does NOT go through EncryptionEngine, so the raw '
+                    . '`bd:v1:...` ciphertext would be returned in REST responses. Use a custom REST '
+                    . 'endpoint (register_rest_route with a handler that reads via AttributeDrivenHydrator) '
+                    . 'and drop `showInRest: true` from the #[MetaKey]. Typically this means prefixing '
+                    . 'the key with `_` so it is treated as protected meta.',
+                    $meta->key,
+                ),
+                '0.1.0',
+            );
+        }
     }
 
     /**

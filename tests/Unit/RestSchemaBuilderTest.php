@@ -114,14 +114,16 @@ final class RestSchemaBuilderTest extends TestCase
         self::assertSame(['admin', 'editor', 'subscriber'], $props['role']['enum']);
     }
 
-    public function testArrayFieldGetsPermissiveItemsSchemaByDefault(): void
+    public function testArrayFieldGetsStringItemsDefault(): void
     {
         $props = RestSchemaBuilder::build(ArrayMetaDto::class)['properties'];
 
         self::assertSame('array', $props['tags']['type']);
         self::assertArrayHasKey('items', $props['tags']);
-        // Permissive default: empty object = accepts anything per JSON Schema
-        self::assertEquals(new \stdClass(), $props['tags']['items']);
+        // Must be a PHP array (not stdClass) — WP REST's recursive
+        // schema walker fatals on object `items`. String is the
+        // pragmatic default until `#[ArrayOf(...)]` ships.
+        self::assertSame(['type' => 'string'], $props['tags']['items']);
     }
 
     public function testToRestArgsFlattensRequiredPerField(): void

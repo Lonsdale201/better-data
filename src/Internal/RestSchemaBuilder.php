@@ -143,14 +143,19 @@ final class RestSchemaBuilder
                 ? ['type' => [$jsonType, 'null']]
                 : ['type' => $jsonType];
 
-            // JSON Schema requires an `items` definition for array types;
-            // WP's register_rest_route validator treats a missing `items`
-            // on array params as invalid. Default to a permissive items
-            // schema so unconstrained `array` properties still validate.
-            // Callers that need a constrained element shape should supply
-            // their own (future #[ArrayOf] attribute — TBD).
+            // Default `items` for unconstrained array fields. Must be a
+            // PHP array (not stdClass) because WP core's
+            // `rest_default_additional_properties_to_false()` recurses
+            // into `items` and calls `(array) $schema['type']` on it —
+            // a stdClass there triggers a fatal "Cannot use object of
+            // type stdClass as array" during CPT REST route creation.
+            //
+            // Using `['type' => 'string']` as the conservative default:
+            // most unconstrained WP meta arrays carry string lists
+            // (tags, slugs, IDs). Consumers with richer element shapes
+            // should supply an explicit hint (future `#[ArrayOf]` attr).
             if ($jsonType === 'array') {
-                $schema['items'] = new \stdClass();
+                $schema['items'] = ['type' => 'string'];
             }
 
             return $schema;
