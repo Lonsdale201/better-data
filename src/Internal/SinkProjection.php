@@ -8,6 +8,7 @@ use BackedEnum;
 use BetterData\Attribute\DateFormat;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
+use BetterData\Exception\UnknownFieldException;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
@@ -43,6 +44,7 @@ final class SinkProjection
      * @param list<string>|null       $only                 property-name whitelist; null = write everything declared
      * @param list<string>            $gmtSystemFields      system field names whose MySQL datetime must be in UTC
      * @param string                  $systemDateFormat     default datetime format for system date fields
+     * @param bool                    $strict               when true, throws UnknownFieldException if `$only` names a non-existent property
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
     public static function project(
@@ -54,6 +56,7 @@ final class SinkProjection
         ?array $only = null,
         array $gmtSystemFields = [],
         string $systemDateFormat = 'Y-m-d H:i:s',
+        bool $strict = false,
     ): array {
         $system = [];
         $meta = [];
@@ -63,6 +66,10 @@ final class SinkProjection
         $constructor = $reflection->getConstructor();
         if ($constructor === null) {
             return ['system' => [], 'meta' => [], 'metaToDelete' => []];
+        }
+
+        if ($strict && $only !== null) {
+            self::assertKnownFields($dto::class, $constructor, $only);
         }
 
         foreach ($constructor->getParameters() as $parameter) {
@@ -119,6 +126,24 @@ final class SinkProjection
             'meta' => $meta,
             'metaToDelete' => $metaToDelete,
         ];
+    }
+
+    /**
+     * @param list<string> $only
+     */
+    private static function assertKnownFields(
+        string $dtoClass,
+        \ReflectionMethod $constructor,
+        array $only,
+    ): void {
+        $available = array_map(
+            static fn (ReflectionParameter $p): string => $p->getName(),
+            $constructor->getParameters(),
+        );
+        $unknown = array_values(array_diff($only, $available));
+        if ($unknown !== []) {
+            throw UnknownFieldException::forFields($dtoClass, $unknown, $available);
+        }
     }
 
     /**

@@ -259,6 +259,26 @@ final class PresenterTest extends TestCase
         ], $out);
     }
 
+    public function testOnlyStrictThrowsOnUnknownField(): void
+    {
+        $user = UserDto::fromArray(['email' => 'a@b.c']);
+
+        $this->expectException(\BetterData\Exception\UnknownFieldException::class);
+        Presenter::for($user)->only(['email', 'emial'], strict: true);
+    }
+
+    public function testOnlyStrictAllowsComputedFieldNames(): void
+    {
+        $user = UserDto::fromArray(['email' => 'a@b.c', 'name' => 'A']);
+
+        $out = Presenter::for($user)
+            ->compute('upperName', static fn (UserDto $u): string => strtoupper((string) $u->name))
+            ->only(['email', 'upperName'], strict: true)
+            ->toArray();
+
+        self::assertSame(['email' => 'a@b.c', 'upperName' => 'A'], $out);
+    }
+
     public function testPresentationContextImmutableWithers(): void
     {
         $ctx = PresentationContext::none();

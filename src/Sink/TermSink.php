@@ -76,8 +76,12 @@ final class TermSink
     /**
      * @param list<string>|null $only
      */
-    public static function insert(DataObject $dto, ?array $only = null): int
+    public static function insert(DataObject $dto, ?array $only = null, bool $strict = false): int
     {
+        if ($strict) {
+            // toArgs -> project forwards through, re-call with strict below.
+            self::project($dto, $only, true);
+        }
         $parts = self::toArgs($dto, $only);
 
         if ($parts['name'] === null || $parts['taxonomy'] === null) {
@@ -107,8 +111,15 @@ final class TermSink
     /**
      * @param list<string>|null $only
      */
-    public static function update(DataObject $dto, ?int $termId = null, ?array $only = null): int
-    {
+    public static function update(
+        DataObject $dto,
+        ?int $termId = null,
+        ?array $only = null,
+        bool $strict = false,
+    ): int {
+        if ($strict) {
+            self::project($dto, $only, true);
+        }
         $parts = self::toArgs($dto, $only);
 
         $termId ??= $parts['term_id'];
@@ -142,21 +153,21 @@ final class TermSink
     /**
      * @param list<string>|null $only
      */
-    public static function save(DataObject $dto, ?array $only = null): int
+    public static function save(DataObject $dto, ?array $only = null, bool $strict = false): int
     {
         $parts = self::toArgs($dto, $only);
         $termId = $parts['term_id'];
 
         return ($termId !== null && $termId > 0)
-            ? self::update($dto, $termId, $only)
-            : self::insert($dto, $only);
+            ? self::update($dto, $termId, $only, $strict)
+            : self::insert($dto, $only, $strict);
     }
 
     /**
      * @param list<string>|null $only
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
-    private static function project(DataObject $dto, ?array $only): array
+    private static function project(DataObject $dto, ?array $only, bool $strict = false): array
     {
         return SinkProjection::project(
             $dto,
@@ -165,6 +176,7 @@ final class TermSink
             propertyAliases: ['id' => 'term_id'],
             excludeSystemFields: self::WRITE_IGNORED,
             only: $only,
+            strict: $strict,
         );
     }
 

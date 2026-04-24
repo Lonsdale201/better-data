@@ -74,6 +74,14 @@ final class PostSource
         $postFields = (array) $wpPost;
         $postId = (int) $wpPost->ID;
 
+        $siteTz = \function_exists('wp_timezone_string') ? \wp_timezone_string() : 'UTC';
+        $fieldTimezones = [
+            'post_date' => $siteTz,
+            'post_modified' => $siteTz,
+            'post_date_gmt' => 'UTC',
+            'post_modified_gmt' => 'UTC',
+        ];
+
         return AttributeDrivenHydrator::hydrate(
             $dtoClass,
             $postFields,
@@ -88,6 +96,7 @@ final class PostSource
                 return \get_post_meta($postId, $key, true);
             },
             ['id' => 'ID'],
+            $fieldTimezones,
         );
     }
 

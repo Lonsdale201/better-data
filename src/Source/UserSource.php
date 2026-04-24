@@ -78,6 +78,7 @@ final class UserSource
                 return \get_user_meta($userId, $key, true);
             },
             ['id' => 'ID'],
+            ['user_registered' => 'UTC'],
         );
     }
 

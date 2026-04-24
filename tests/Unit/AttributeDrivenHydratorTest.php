@@ -90,6 +90,32 @@ final class AttributeDrivenHydratorTest extends TestCase
         self::assertSame(0, $dto->loyaltyPoints);
     }
 
+    public function testFieldTimezoneAppliedToDateTimeSystemField(): void
+    {
+        // post_date_gmt → UTC, post_date → site tz
+        $dto = AttributeDrivenHydrator::hydrate(
+            PostBackedDto::class,
+            [
+                'ID' => 1,
+                'post_title' => 'T',
+                'post_status' => 'publish',
+                'post_date_gmt' => '2026-01-15 10:00:00', // no tz offset in the string
+            ],
+            self::POST_FIELDS,
+            PostField::class,
+            static fn (string $key): mixed => match ($key) {
+                '_price' => '9.99',
+                '_stock' => '1',
+                default => null,
+            },
+            ['id' => 'ID'],
+            ['post_date_gmt' => 'UTC'],
+        );
+
+        self::assertSame('UTC', $dto->publishedAt->getTimezone()->getName());
+        self::assertSame('2026-01-15 10:00:00', $dto->publishedAt->format('Y-m-d H:i:s'));
+    }
+
     public function testEmptyStringMetaPreservedWhenKeyExists(): void
     {
         $dto = AttributeDrivenHydrator::hydrate(

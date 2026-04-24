@@ -80,9 +80,10 @@ final class UserSink
     /**
      * @param list<string>|null $only
      */
-    public static function insert(DataObject $dto, ?array $only = null): int
+    public static function insert(DataObject $dto, ?array $only = null, bool $strict = false): int
     {
-        $args = self::toArgs($dto, $only);
+        $projection = self::project($dto, $only, $strict);
+        $args = $projection['system'];
         unset($args['ID']);
 
         $result = \wp_insert_user(\wp_slash($args));
@@ -93,7 +94,7 @@ final class UserSink
         }
 
         $userId = (int) $result;
-        self::applyMeta($dto, $userId, $only);
+        self::applyMetaProjection($projection, $userId);
 
         return $userId;
     }
@@ -101,14 +102,19 @@ final class UserSink
     /**
      * @param list<string>|null $only
      */
-    public static function update(DataObject $dto, ?int $userId = null, ?array $only = null): int
-    {
+    public static function update(
+        DataObject $dto,
+        ?int $userId = null,
+        ?array $only = null,
+        bool $strict = false,
+    ): int {
         $userId ??= self::identifierOf($dto);
         if ($userId <= 0) {
             throw MissingIdentifierException::forUpdate($dto::class, 'id');
         }
 
-        $args = self::toArgs($dto, $only);
+        $projection = self::project($dto, $only, $strict);
+        $args = $projection['system'];
         $args['ID'] = $userId;
 
         $result = \wp_update_user(\wp_slash($args));
@@ -118,7 +124,7 @@ final class UserSink
             );
         }
 
-        self::applyMeta($dto, $userId, $only);
+        self::applyMetaProjection($projection, $userId);
 
         return $userId;
     }
@@ -126,18 +132,20 @@ final class UserSink
     /**
      * @param list<string>|null $only
      */
-    public static function save(DataObject $dto, ?array $only = null): int
+    public static function save(DataObject $dto, ?array $only = null, bool $strict = false): int
     {
         $id = self::tryIdentifierOf($dto);
 
-        return $id > 0 ? self::update($dto, $id, $only) : self::insert($dto, $only);
+        return $id > 0
+            ? self::update($dto, $id, $only, $strict)
+            : self::insert($dto, $only, $strict);
     }
 
     /**
      * @param list<string>|null $only
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
-    private static function project(DataObject $dto, ?array $only): array
+    private static function project(DataObject $dto, ?array $only, bool $strict = false): array
     {
         return SinkProjection::project(
             $dto,
@@ -147,19 +155,19 @@ final class UserSink
             excludeSystemFields: self::ALWAYS_EXCLUDED,
             only: $only,
             gmtSystemFields: self::GMT_FIELDS,
+            strict: $strict,
         );
     }
 
     /**
-     * @param list<string>|null $only
+     * @param array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>} $projection
      */
-    private static function applyMeta(DataObject $dto, int $userId, ?array $only): void
+    private static function applyMetaProjection(array $projection, int $userId): void
     {
-        $meta = self::toMeta($dto, $only);
-        foreach ($meta['write'] as $key => $value) {
+        foreach ($projection['meta'] as $key => $value) {
             \update_user_meta($userId, $key, \wp_slash($value));
         }
-        foreach ($meta['delete'] as $key) {
+        foreach ($projection['metaToDelete'] as $key) {
             \delete_user_meta($userId, $key);
         }
     }

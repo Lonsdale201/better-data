@@ -9,6 +9,7 @@ use BetterData\DataObject;
 use BetterData\Exception\TypeCoercionException;
 use DateTimeImmutable;
 use DateTimeInterface;
+use DateTimeZone;
 use ReflectionNamedType;
 use ReflectionType;
 
@@ -22,11 +23,19 @@ use ReflectionType;
  */
 final class TypeCoercer
 {
+    /**
+     * @param null|string|DateTimeZone $timezone optional timezone hint
+     *        applied to string → DateTimeImmutable coercion when the
+     *        incoming value carries no timezone offset. Lets sources
+     *        correctly interpret WP's `*_gmt` fields as UTC and non-GMT
+     *        fields as the site timezone. Ignored for non-datetime types.
+     */
     public static function coerce(
         string $dataObjectClass,
         string $fieldName,
         ?ReflectionType $type,
         mixed $value,
+        string|DateTimeZone|null $timezone = null,
     ): mixed {
         if (!$type instanceof ReflectionNamedType) {
             if ($type === null) {
@@ -59,7 +68,7 @@ final class TypeCoercer
             return self::coerceBuiltin($dataObjectClass, $fieldName, $target, $value);
         }
 
-        return self::coerceClass($dataObjectClass, $fieldName, $target, $value);
+        return self::coerceClass($dataObjectClass, $fieldName, $target, $value, $timezone);
     }
 
     private static function coerceBuiltin(
@@ -88,6 +97,7 @@ final class TypeCoercer
         string $fieldName,
         string $target,
         mixed $value,
+        string|DateTimeZone|null $timezone = null,
     ): object {
         if ($value instanceof $target) {
             return $value;
@@ -128,7 +138,12 @@ final class TypeCoercer
 
             if (is_string($value) && $value !== '') {
                 try {
-                    return new DateTimeImmutable($value);
+                    $tz = is_string($timezone) ? new DateTimeZone($timezone) : $timezone;
+                    $dt = $tz !== null
+                        ? new DateTimeImmutable($value, $tz)
+                        : new DateTimeImmutable($value);
+
+                    return $dt;
                 } catch (\Exception $e) {
                     throw TypeCoercionException::for(
                         $dataObjectClass,

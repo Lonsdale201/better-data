@@ -7,6 +7,7 @@ namespace BetterData\Presenter;
 use BackedEnum;
 use BetterData\Attribute\Sensitive;
 use BetterData\DataObject;
+use BetterData\Exception\UnknownFieldException;
 use BetterData\Presenter\Formatter\CurrencyFormatter;
 use BetterData\Presenter\Formatter\DateTimeFormatter;
 use DateTimeInterface;
@@ -134,10 +135,18 @@ class Presenter
      * keeps everything. Computed fields must be listed here if `only()`
      * is set — their names count as field names.
      *
+     * Pass `strict: true` to get a typo-safe call: any field name that
+     * is neither a DTO property nor a registered `compute()` name
+     * throws `UnknownFieldException`. Off by default for backward
+     * compat.
+     *
      * @param list<string> $fields
      */
-    public function only(array $fields): static
+    public function only(array $fields, bool $strict = false): static
     {
+        if ($strict) {
+            $this->assertKnownOnlyFields($fields);
+        }
         $this->only = $fields;
 
         return $this;
@@ -408,6 +417,25 @@ class Presenter
         }
 
         return true;
+    }
+
+    /**
+     * @param list<string> $fields
+     */
+    private function assertKnownOnlyFields(array $fields): void
+    {
+        $reflection = new ReflectionClass($this->dto);
+        $properties = [];
+        foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if (!$property->isStatic()) {
+                $properties[] = $property->getName();
+            }
+        }
+        $available = array_values(array_unique(array_merge($properties, array_keys($this->computed))));
+        $unknown = array_values(array_diff($fields, $available));
+        if ($unknown !== []) {
+            throw UnknownFieldException::forFields($this->dto::class, $unknown, $available);
+        }
     }
 
     /**

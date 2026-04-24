@@ -127,14 +127,14 @@ final class PostSink
      *
      * @param list<string>|null $only
      */
-    public static function insert(DataObject $dto, ?array $only = null): int
+    public static function insert(DataObject $dto, ?array $only = null, bool $strict = false): int
     {
-        $args = self::toArgs($dto, $only);
+        $projection = self::project($dto, $only, $strict);
+        $args = $projection['system'];
         unset($args['ID']);
 
-        $meta = self::toMeta($dto, $only);
-        if ($meta['write'] !== []) {
-            $args['meta_input'] = $meta['write'];
+        if ($projection['meta'] !== []) {
+            $args['meta_input'] = $projection['meta'];
         }
 
         $args = \wp_slash($args);
@@ -160,15 +160,19 @@ final class PostSink
      * @param list<string>|null $only
      * @return int post ID that was updated
      */
-    public static function update(DataObject $dto, ?int $postId = null, ?array $only = null): int
-    {
+    public static function update(
+        DataObject $dto,
+        ?int $postId = null,
+        ?array $only = null,
+        bool $strict = false,
+    ): int {
         $postId ??= self::identifierOf($dto);
         if ($postId <= 0) {
             throw MissingIdentifierException::forUpdate($dto::class, 'id');
         }
 
-        $args = self::toArgs($dto, $only);
-        unset($args['meta_input']);
+        $projection = self::project($dto, $only, $strict);
+        $args = $projection['system'];
         $args['ID'] = $postId;
 
         $result = \wp_update_post(\wp_slash($args), true);
@@ -178,16 +182,16 @@ final class PostSink
             );
         }
 
-        $meta = self::toMeta($dto, $only);
-        foreach ($meta['write'] as $key => $value) {
+        foreach ($projection['meta'] as $key => $value) {
             \update_post_meta($postId, $key, \wp_slash($value));
         }
-        foreach ($meta['delete'] as $key) {
+        foreach ($projection['metaToDelete'] as $key) {
             \delete_post_meta($postId, $key);
         }
 
         return $postId;
     }
+
 
     /**
      * Route to insert or update based on whether the DTO declares a
@@ -196,18 +200,20 @@ final class PostSink
      * @param list<string>|null $only
      * @return int post ID
      */
-    public static function save(DataObject $dto, ?array $only = null): int
+    public static function save(DataObject $dto, ?array $only = null, bool $strict = false): int
     {
         $id = self::tryIdentifierOf($dto);
 
-        return $id > 0 ? self::update($dto, $id, $only) : self::insert($dto, $only);
+        return $id > 0
+            ? self::update($dto, $id, $only, $strict)
+            : self::insert($dto, $only, $strict);
     }
 
     /**
      * @param list<string>|null $only
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
-    private static function project(DataObject $dto, ?array $only): array
+    private static function project(DataObject $dto, ?array $only, bool $strict = false): array
     {
         return SinkProjection::project(
             $dto,
@@ -216,6 +222,7 @@ final class PostSink
             propertyAliases: ['id' => 'ID'],
             only: $only,
             gmtSystemFields: self::GMT_FIELDS,
+            strict: $strict,
         );
     }
 

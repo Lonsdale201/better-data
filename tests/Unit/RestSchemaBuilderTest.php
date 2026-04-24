@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace BetterData\Tests\Unit;
 
 use BetterData\Internal\RestSchemaBuilder;
+use BetterData\Registration\MetaKeyRegistry;
+use BetterData\Tests\Fixtures\ArrayMetaDto;
 use BetterData\Tests\Fixtures\PostBackedDto;
 use BetterData\Tests\Fixtures\ProfileDto;
 use BetterData\Tests\Fixtures\SchemaTestDto;
@@ -109,5 +111,35 @@ final class RestSchemaBuilderTest extends TestCase
 
         self::assertSame('string', $props['role']['type']);
         self::assertSame(['admin', 'editor', 'subscriber'], $props['role']['enum']);
+    }
+
+    public function testArrayFieldGetsPermissiveItemsSchemaByDefault(): void
+    {
+        $props = RestSchemaBuilder::build(ArrayMetaDto::class)['properties'];
+
+        self::assertSame('array', $props['tags']['type']);
+        self::assertArrayHasKey('items', $props['tags']);
+        // Permissive default: empty object = accepts anything per JSON Schema
+        self::assertEquals(new \stdClass(), $props['tags']['items']);
+    }
+
+    public function testToRestArgsFlattensRequiredPerField(): void
+    {
+        $args = MetaKeyRegistry::toRestArgs(SchemaTestDto::class);
+
+        self::assertTrue($args['email']['required']);
+        self::assertTrue($args['name']['required']);
+        self::assertFalse($args['age']['required']);
+        self::assertFalse($args['website']['required']);
+        self::assertSame('email', $args['email']['format']);
+    }
+
+    public function testToJsonSchemaAliasMatchesDeprecatedToRestSchema(): void
+    {
+        $jsonSchema = MetaKeyRegistry::toJsonSchema(SchemaTestDto::class);
+        $legacy = MetaKeyRegistry::toRestSchema(SchemaTestDto::class);
+
+        self::assertSame($jsonSchema, $legacy);
+        self::assertSame('object', $jsonSchema['type']);
     }
 }

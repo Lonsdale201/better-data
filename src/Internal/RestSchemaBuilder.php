@@ -138,9 +138,21 @@ final class RestSchemaBuilder
                 default => 'string',
             };
 
-            return $nullable
+            $schema = $nullable
                 ? ['type' => [$jsonType, 'null']]
                 : ['type' => $jsonType];
+
+            // JSON Schema requires an `items` definition for array types;
+            // WP's register_rest_route validator treats a missing `items`
+            // on array params as invalid. Default to a permissive items
+            // schema so unconstrained `array` properties still validate.
+            // Callers that need a constrained element shape should supply
+            // their own (future #[ArrayOf] attribute — TBD).
+            if ($jsonType === 'array') {
+                $schema['items'] = new \stdClass();
+            }
+
+            return $schema;
         }
 
         if (is_subclass_of($name, BackedEnum::class)) {

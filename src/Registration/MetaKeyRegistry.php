@@ -35,9 +35,17 @@ use ReflectionParameter;
  *         );
  *     });
  *
- * For sourcing the REST schema (e.g. to feed `register_rest_route`'s
- * `args`, or an OpenAPI generator), use `toRestSchema()` — it's a pure
- * projection, no WP side-effects.
+ * For sourcing the REST schema, pick the shape the consumer needs:
+ *  - `toJsonSchema($dto)` — root-object JSON Schema suitable for
+ *    OpenAPI `components/schemas/` slots.
+ *  - `toRestArgs($dto)` — per-field arg map ready for
+ *    `register_rest_route(['args' => ...])` (WP arg-map convention:
+ *    flat top-level `type` / `required` / `sanitize_callback` /
+ *    `validate_callback` per field).
+ *  - `toRestSchema($dto)` — alias of `toJsonSchema`, kept for one
+ *    release as a backward-compat shim. @deprecated.
+ *
+ * All three are pure projections — no WP side-effects.
  */
 final class MetaKeyRegistry
 {
@@ -117,16 +125,66 @@ final class MetaKeyRegistry
     }
 
     /**
-     * Build a JSON Schema-compatible object describing the whole DTO.
-     * Suitable for `register_rest_route($route, ['args' => ...])` or
-     * external OpenAPI tooling.
+     * Build a root-object JSON Schema describing the whole DTO.
+     * Drop directly into OpenAPI `components/schemas/<Name>`.
+     *
+     * @param class-string<DataObject> $dtoClass
+     * @return array<string, mixed>
+     */
+    public static function toJsonSchema(string $dtoClass): array
+    {
+        return RestSchemaBuilder::build($dtoClass);
+    }
+
+    /**
+     * Build a flat per-field arg map for `register_rest_route`'s
+     * `args` slot. Each entry follows the WP REST arg convention:
+     * top-level `type`, `required`, `description`, plus any
+     * format/enum/minLength/maximum… constraints inferred from the
+     * DTO's type + rule attributes.
+     *
+     * Use alongside a route registration:
+     *
+     *     register_rest_route('my/v1', '/things', [
+     *         'methods' => 'POST',
+     *         'args'    => MetaKeyRegistry::toRestArgs(CreateThingDto::class),
+     *         'callback' => fn (\WP_REST_Request $r) => ...,
+     *     ]);
+     *
+     * @param class-string<DataObject> $dtoClass
+     * @return array<string, array<string, mixed>>
+     */
+    public static function toRestArgs(string $dtoClass): array
+    {
+        $schema = RestSchemaBuilder::build($dtoClass);
+        $required = $schema['required'] ?? [];
+        $properties = $schema['properties'] ?? [];
+
+        $args = [];
+        foreach ($properties as $name => $field) {
+            if (!is_string($name) || !is_array($field)) {
+                continue;
+            }
+            $entry = $field;
+            $entry['required'] = in_array($name, (array) $required, true);
+            $args[$name] = $entry;
+        }
+
+        return $args;
+    }
+
+    /**
+     * @deprecated 0.1.0 Use {@see toJsonSchema()} for the root-object
+     *             form, or {@see toRestArgs()} for the register_rest_route
+     *             arg-map form. This method is an alias of
+     *             `toJsonSchema` kept for one release.
      *
      * @param class-string<DataObject> $dtoClass
      * @return array<string, mixed>
      */
     public static function toRestSchema(string $dtoClass): array
     {
-        return RestSchemaBuilder::build($dtoClass);
+        return self::toJsonSchema($dtoClass);
     }
 
     /**
@@ -214,14 +272,34 @@ final class MetaKeyRegistry
         };
     }
 
+    /**
+     * Build an auth_callback matching WP's full signature so the check
+     * is evaluated against the specific object being written, not just
+     * the current user's generic role.
+     *
+     * WP signature (since 4.6):
+     *   (bool $allowed, string $meta_key, int $object_id, int $user_id,
+     *    string $cap, array $caps): bool
+     *
+     * Using `user_can($user_id, $capability, $object_id)` honours
+     * per-object mapped-capability checks (e.g. `edit_post` on post N),
+     * which `current_user_can($capability)` alone cannot express.
+     */
     private static function makeAuthCallback(string $capability): \Closure
     {
-        return static function () use ($capability): bool {
-            if (!\function_exists('current_user_can')) {
+        return static function (
+            bool $allowed,
+            string $metaKey,
+            int $objectId,
+            int $userId,
+            string $cap,
+            array $caps,
+        ) use ($capability): bool {
+            if (!\function_exists('user_can')) {
                 return false;
             }
 
-            return (bool) \current_user_can($capability);
+            return (bool) \user_can($userId, $capability, $objectId);
         };
     }
 }

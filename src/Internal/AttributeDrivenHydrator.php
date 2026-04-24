@@ -7,7 +7,11 @@ namespace BetterData\Internal;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
 use BetterData\Exception\DataObjectException;
+use DateTimeImmutable;
+use DateTimeInterface;
+use DateTimeZone;
 use ReflectionClass;
+use ReflectionNamedType;
 
 /**
  * Generic engine that hydrates a DataObject from any WordPress-style
@@ -27,6 +31,14 @@ use ReflectionClass;
  *                       entry that should fall back to the DTO default.
  *  - `$propertyAliases`: property-name → system-field-name auto-aliases
  *                       (e.g. ['id' => 'ID'] for post/user, ['id' => 'term_id'] for term)
+ *  - `$fieldTimezones`:  source-field-name → timezone map. When a
+ *                       system field listed here resolves to a
+ *                       non-empty string AND the target DTO param is
+ *                       `DateTimeInterface`/`DateTimeImmutable`, the
+ *                       engine pre-constructs a DateTimeImmutable with
+ *                       that timezone. Used by Post/User sources to
+ *                       tag `*_gmt` fields as UTC and local fields as
+ *                       site timezone.
  *
  * Kept WP-independent so every record-source engine stays unit-testable.
  *
@@ -42,6 +54,7 @@ final class AttributeDrivenHydrator
      * @param class-string            $fieldAttribute
      * @param callable(string): mixed $metaFetcher
      * @param array<string, string>   $propertyAliases
+     * @param array<string, string>   $fieldTimezones
      * @return T
      */
     public static function hydrate(
@@ -51,6 +64,7 @@ final class AttributeDrivenHydrator
         string $fieldAttribute,
         callable $metaFetcher,
         array $propertyAliases = [],
+        array $fieldTimezones = [],
     ): DataObject {
         $reflection = new ReflectionClass($dtoClass);
         $constructor = $reflection->getConstructor();
@@ -90,13 +104,24 @@ final class AttributeDrivenHydrator
             if ($fieldAttr !== null) {
                 /** @var object{name: string} $instance */
                 $instance = $fieldAttr->newInstance();
-                $data[$name] = $objectFields[$instance->name] ?? null;
+                $sourceName = $instance->name;
+                $data[$name] = self::maybeApplyTimezone(
+                    $objectFields[$sourceName] ?? null,
+                    $parameter,
+                    $sourceName,
+                    $fieldTimezones,
+                );
                 continue;
             }
 
             $autoField = self::autoDetect($name, $knownFields, $propertyAliases);
             if ($autoField !== null) {
-                $data[$name] = $objectFields[$autoField] ?? null;
+                $data[$name] = self::maybeApplyTimezone(
+                    $objectFields[$autoField] ?? null,
+                    $parameter,
+                    $autoField,
+                    $fieldTimezones,
+                );
                 continue;
             }
 
@@ -114,6 +139,51 @@ final class AttributeDrivenHydrator
         }
 
         return $dtoClass::fromArray($data);
+    }
+
+    /**
+     * Pre-convert a string WP datetime into a DateTimeImmutable with the
+     * supplied timezone, so the downstream TypeCoercer sees an already-
+     * tagged DateTimeInterface (createFromInterface preserves the TZ).
+     *
+     * No-op unless: value is a non-empty string; target param type is a
+     * DateTimeInterface/DateTimeImmutable; and source field has a
+     * timezone entry.
+     *
+     * @param array<string, string> $fieldTimezones
+     */
+    private static function maybeApplyTimezone(
+        mixed $value,
+        \ReflectionParameter $parameter,
+        string $sourceFieldName,
+        array $fieldTimezones,
+    ): mixed {
+        if (!is_string($value) || $value === '') {
+            return $value;
+        }
+        if (!isset($fieldTimezones[$sourceFieldName])) {
+            return $value;
+        }
+
+        $type = $parameter->getType();
+        if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
+            return $value;
+        }
+
+        $target = $type->getName();
+        if ($target !== DateTimeImmutable::class
+            && $target !== DateTimeInterface::class
+            && !is_subclass_of($target, DateTimeInterface::class)
+        ) {
+            return $value;
+        }
+
+        try {
+            return new DateTimeImmutable($value, new DateTimeZone($fieldTimezones[$sourceFieldName]));
+        } catch (\Exception) {
+            // Fall back to raw string; coercer will raise a meaningful error.
+            return $value;
+        }
     }
 
     /**

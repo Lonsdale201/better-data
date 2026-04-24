@@ -49,9 +49,9 @@ final class CollectionPresenter
     /**
      * @param list<string> $fields
      */
-    public function only(array $fields): self
+    public function only(array $fields, bool $strict = false): self
     {
-        $this->configurers[] = static fn (Presenter $p): Presenter => $p->only($fields);
+        $this->configurers[] = static fn (Presenter $p): Presenter => $p->only($fields, $strict);
 
         return $this;
     }

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace BetterData\Sink;
 
 use BetterData\DataObject;
+use BetterData\Exception\UnknownFieldException;
+use ReflectionClass;
+use ReflectionParameter;
 
 /**
  * Writes DataObjects back to the WordPress Options API.
@@ -24,11 +27,15 @@ final class OptionSink
      * @param list<string>|null $only
      * @return array<string, mixed>
      */
-    public static function toArray(DataObject $dto, ?array $only = null): array
+    public static function toArray(DataObject $dto, ?array $only = null, bool $strict = false): array
     {
         $data = $dto->toArray();
         if ($only === null) {
             return $data;
+        }
+
+        if ($strict) {
+            self::assertKnownFields($dto, $only);
         }
 
         $filtered = [];
@@ -52,8 +59,9 @@ final class OptionSink
         string $option,
         ?array $only = null,
         ?bool $autoload = null,
+        bool $strict = false,
     ): bool {
-        $projected = self::toArray($dto, $only);
+        $projected = self::toArray($dto, $only, $strict);
 
         if ($only !== null) {
             $existing = \get_option($option, []);
@@ -64,5 +72,24 @@ final class OptionSink
         }
 
         return (bool) \update_option($option, $projected, $autoload);
+    }
+
+    /**
+     * @param list<string> $only
+     */
+    private static function assertKnownFields(DataObject $dto, array $only): void
+    {
+        $constructor = (new ReflectionClass($dto))->getConstructor();
+        if ($constructor === null) {
+            return;
+        }
+        $available = array_map(
+            static fn (ReflectionParameter $p): string => $p->getName(),
+            $constructor->getParameters(),
+        );
+        $unknown = array_values(array_diff($only, $available));
+        if ($unknown !== []) {
+            throw UnknownFieldException::forFields($dto::class, $unknown, $available);
+        }
     }
 }
