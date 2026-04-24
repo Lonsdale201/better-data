@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace BetterData;
 
 use BackedEnum;
+use BetterData\Attribute\Encrypted;
+use BetterData\Attribute\ListOf;
+use BetterData\Encryption\EncryptionEngine;
 use BetterData\Exception\MissingRequiredFieldException;
+use BetterData\Exception\TypeCoercionException;
 use BetterData\Internal\TypeCoercer;
 use BetterData\Validation\BuiltInValidator;
 use BetterData\Validation\ValidationEngineInterface;
@@ -13,6 +17,7 @@ use BetterData\Validation\ValidationResult;
 use DateTimeInterface;
 use JsonSerializable;
 use ReflectionClass;
+use ReflectionParameter;
 
 /**
  * Abstract base class for typed, immutable data transfer objects.
@@ -68,12 +73,7 @@ abstract readonly class DataObject
                 throw MissingRequiredFieldException::for(static::class, $name);
             }
 
-            $args[$name] = TypeCoercer::coerce(
-                static::class,
-                $name,
-                $parameter->getType(),
-                $data[$name],
-            );
+            $args[$name] = self::coerceParameter($parameter, $data[$name]);
         }
 
         /** @var static */
@@ -157,6 +157,64 @@ abstract readonly class DataObject
         $dto->validate($engine)->throwIfInvalid();
 
         return $dto;
+    }
+
+    /**
+     * Coerce a single incoming value for a constructor parameter.
+     * Honours `#[ListOf($class)]` for list-of-object coercion — each
+     * element is delegated to `$class::fromArray()` (or left alone if
+     * it is already an instance of the target).
+     */
+    private static function coerceParameter(ReflectionParameter $parameter, mixed $value): mixed
+    {
+        // At-rest encryption: if the property carries #[Encrypted] and the
+        // incoming raw value looks like a bd:v1: envelope, decrypt first
+        // so downstream coercion sees the plaintext. Idempotent — the
+        // AttributeDrivenHydrator meta path already decrypts, and this
+        // check no-ops on a non-envelope value (such as a legacy plaintext
+        // meta or a freshly-decrypted string).
+        if (is_string($value)
+            && $value !== ''
+            && EncryptionEngine::looksEncrypted($value)
+            && $parameter->getAttributes(Encrypted::class) !== []
+        ) {
+            $value = EncryptionEngine::decrypt($value, $parameter->getName());
+        }
+
+        $listOfAttr = $parameter->getAttributes(ListOf::class)[0] ?? null;
+        if ($listOfAttr !== null && is_array($value)) {
+            /** @var ListOf $listOf */
+            $listOf = $listOfAttr->newInstance();
+            $class = $listOf->class;
+            $coerced = [];
+            foreach ($value as $key => $element) {
+                if ($element instanceof $class) {
+                    $coerced[$key] = $element;
+                    continue;
+                }
+                if (is_array($element) && method_exists($class, 'fromArray')) {
+                    /** @var callable $factory */
+                    $factory = [$class, 'fromArray'];
+                    $coerced[$key] = $factory($element);
+                    continue;
+                }
+                throw TypeCoercionException::for(
+                    static::class,
+                    $parameter->getName() . "[{$key}]",
+                    $class,
+                    $element,
+                );
+            }
+
+            return $coerced;
+        }
+
+        return TypeCoercer::coerce(
+            static::class,
+            $parameter->getName(),
+            $parameter->getType(),
+            $value,
+        );
     }
 
     private static function serializeValue(mixed $value): mixed

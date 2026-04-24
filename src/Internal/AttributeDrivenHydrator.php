@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace BetterData\Internal;
 
+use BetterData\Attribute\Encrypted;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
 use BetterData\Encryption\EncryptionEngine;
@@ -97,7 +98,9 @@ final class AttributeDrivenHydrator
                     }
                 }
 
-                if ($instance->encrypt && is_string($value) && $value !== '') {
+                $isEncrypted = $instance->encrypt
+                    || $parameter->getAttributes(Encrypted::class) !== [];
+                if ($isEncrypted && is_string($value) && $value !== '') {
                     $value = EncryptionEngine::decrypt($value, $instance->key);
                 }
 

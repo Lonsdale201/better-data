@@ -112,6 +112,13 @@ final class PostSource
             return [];
         }
 
+        // Prewarm both post and meta caches in one go. Without the post
+        // prime, each per-id get_post() round-trips to the DB — N+1 when
+        // caches are cold. _prime_post_caches pulls every post in one
+        // SELECT, and update_meta_cache pulls every meta row in a second.
+        if (\function_exists('_prime_post_caches')) {
+            \_prime_post_caches($postIds, true, true);
+        }
         if (\function_exists('update_meta_cache')) {
             \update_meta_cache('post', $postIds);
         }

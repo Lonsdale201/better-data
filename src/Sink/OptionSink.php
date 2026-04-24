@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace BetterData\Sink;
 
 use BackedEnum;
+use BetterData\Attribute\Encrypted;
 use BetterData\DataObject;
+use BetterData\Encryption\EncryptionEngine;
 use BetterData\Exception\UnknownFieldException;
 use BetterData\Secret;
 use DateTimeInterface;
@@ -33,16 +35,17 @@ use ReflectionProperty;
  * existing option value is read first and merged with the projection,
  * so untouched fields stay as they were.
  *
- * ## Scope — at-rest encryption
+ * ## At-rest encryption
  *
- * `#[MetaKey(encrypt: true)]` applies to the meta write path only.
- * OptionSink does NOT currently encrypt at rest — a `Secret` property
- * lands in wp_options as plaintext within the serialized array. The
- * `Secret` type still prevents accidental leaks through serialization
- * and presentation paths, but the on-disk wp_options row is readable
- * by anyone with DB access. If you need at-rest encryption for
- * option-backed secrets, store them as meta on a dedicated config
- * post, or write an application-level encrypt/decrypt wrapper.
+ * Properties marked with `#[Encrypted]` route through `EncryptionEngine`
+ * (AES-256-GCM) on both read and write, symmetric with the meta-sink
+ * path. The ciphertext (`bd:v1:base64(iv || ct || tag)`) lands
+ * serialized into the wp_options row rather than the plaintext. Missing
+ * `BETTER_DATA_ENCRYPTION_KEY` throws `MissingEncryptionKeyException`.
+ *
+ * Read back via `DataObject::fromArray()` — the stored envelope is
+ * detected by its `bd:v1:` prefix, decrypted, and re-wrapped into the
+ * target type (e.g. Secret) via the usual TypeCoercer path.
  */
 final class OptionSink
 {
@@ -109,6 +112,7 @@ final class OptionSink
      * Walk public non-static properties and produce an
      * option-storage-ready array. Symmetric with `SinkProjection` for
      * meta: rich types get unwrapped so reads can reconstruct them.
+     * Properties marked `#[Encrypted]` get encrypted here.
      *
      * @return array<string, mixed>
      */
@@ -120,7 +124,17 @@ final class OptionSink
             if ($property->isStatic()) {
                 continue;
             }
-            $out[$property->getName()] = self::projectValue($property->getValue($dto));
+            $name = $property->getName();
+            $value = self::projectValue($property->getValue($dto));
+
+            if ($property->getAttributes(Encrypted::class) !== []
+                && is_string($value)
+                && $value !== ''
+            ) {
+                $value = EncryptionEngine::encrypt($value);
+            }
+
+            $out[$name] = $value;
         }
 
         return $out;

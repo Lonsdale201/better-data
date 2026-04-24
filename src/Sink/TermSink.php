@@ -76,11 +76,14 @@ final class TermSink
     /**
      * @param list<string>|null $only
      */
-    public static function insert(DataObject $dto, ?array $only = null, bool $strict = false): int
-    {
+    public static function insert(
+        DataObject $dto,
+        ?array $only = null,
+        bool $strict = false,
+        bool $skipNullDeletes = false,
+    ): int {
         if ($strict) {
-            // toArgs -> project forwards through, re-call with strict below.
-            self::project($dto, $only, true);
+            self::project($dto, $only, true, $skipNullDeletes);
         }
         $parts = self::toArgs($dto, $only);
 
@@ -116,9 +119,10 @@ final class TermSink
         ?int $termId = null,
         ?array $only = null,
         bool $strict = false,
+        bool $skipNullDeletes = false,
     ): int {
-        if ($strict) {
-            self::project($dto, $only, true);
+        if ($strict || $skipNullDeletes) {
+            self::project($dto, $only, $strict, $skipNullDeletes);
         }
         $parts = self::toArgs($dto, $only);
 
@@ -153,22 +157,30 @@ final class TermSink
     /**
      * @param list<string>|null $only
      */
-    public static function save(DataObject $dto, ?array $only = null, bool $strict = false): int
-    {
+    public static function save(
+        DataObject $dto,
+        ?array $only = null,
+        bool $strict = false,
+        bool $skipNullDeletes = false,
+    ): int {
         $parts = self::toArgs($dto, $only);
         $termId = $parts['term_id'];
 
         return ($termId !== null && $termId > 0)
-            ? self::update($dto, $termId, $only, $strict)
-            : self::insert($dto, $only, $strict);
+            ? self::update($dto, $termId, $only, $strict, $skipNullDeletes)
+            : self::insert($dto, $only, $strict, $skipNullDeletes);
     }
 
     /**
      * @param list<string>|null $only
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
-    private static function project(DataObject $dto, ?array $only, bool $strict = false): array
-    {
+    private static function project(
+        DataObject $dto,
+        ?array $only,
+        bool $strict = false,
+        bool $skipNullDeletes = false,
+    ): array {
         return SinkProjection::project(
             $dto,
             TermField::class,
@@ -177,6 +189,7 @@ final class TermSink
             excludeSystemFields: self::WRITE_IGNORED,
             only: $only,
             strict: $strict,
+            skipNullDeletes: $skipNullDeletes,
         );
     }
 

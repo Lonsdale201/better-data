@@ -6,6 +6,7 @@ namespace BetterData\Internal;
 
 use BackedEnum;
 use BetterData\Attribute\DateFormat;
+use BetterData\Attribute\Encrypted;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
 use BetterData\Encryption\EncryptionEngine;
@@ -47,6 +48,7 @@ final class SinkProjection
      * @param list<string>            $gmtSystemFields      system field names whose MySQL datetime must be in UTC
      * @param string                  $systemDateFormat     default datetime format for system date fields
      * @param bool                    $strict               when true, throws UnknownFieldException if `$only` names a non-existent property
+     * @param bool                    $skipNullDeletes      when true, null DTO meta values are SKIPPED entirely (neither written nor scheduled for deletion). Use for PATCH-style partial updates where "absent = untouched" matters.
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
     public static function project(
@@ -59,6 +61,7 @@ final class SinkProjection
         array $gmtSystemFields = [],
         string $systemDateFormat = 'Y-m-d H:i:s',
         bool $strict = false,
+        bool $skipNullDeletes = false,
     ): array {
         $system = [];
         $meta = [];
@@ -87,7 +90,10 @@ final class SinkProjection
                 /** @var MetaKey $instance */
                 $instance = $metaAttr->newInstance();
                 if ($value === null) {
-                    $metaToDelete[] = $instance->key;
+                    if (!$skipNullDeletes) {
+                        $metaToDelete[] = $instance->key;
+                    }
+                    // skipNullDeletes: omit entirely; leave existing meta untouched.
                 } else {
                     $prepared = self::prepareValue(
                         $value,
@@ -95,7 +101,9 @@ final class SinkProjection
                         null,
                         false,
                     );
-                    if ($instance->encrypt && is_string($prepared) && $prepared !== '') {
+                    $isEncrypted = $instance->encrypt
+                        || $parameter->getAttributes(Encrypted::class) !== [];
+                    if ($isEncrypted && is_string($prepared) && $prepared !== '') {
                         $prepared = EncryptionEngine::encrypt($prepared);
                     }
                     $meta[$instance->key] = $prepared;
@@ -215,6 +223,17 @@ final class SinkProjection
 
         if ($value instanceof DataObject) {
             return $value->toArray();
+        }
+
+        if (is_array($value)) {
+            // Walk nested arrays so array-of-DataObject (typed with
+            // #[ListOf]) persists as array-of-array, not serialized
+            // PHP objects. Keeps stored data decoupled from class
+            // names across refactors.
+            return array_map(
+                static fn (mixed $item): mixed => self::prepareValue($item, $parameter, $systemDateFormat, $forceUtc),
+                $value,
+            );
         }
 
         return $value;

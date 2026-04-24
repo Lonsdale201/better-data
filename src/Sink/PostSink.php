@@ -127,9 +127,13 @@ final class PostSink
      *
      * @param list<string>|null $only
      */
-    public static function insert(DataObject $dto, ?array $only = null, bool $strict = false): int
-    {
-        $projection = self::project($dto, $only, $strict);
+    public static function insert(
+        DataObject $dto,
+        ?array $only = null,
+        bool $strict = false,
+        bool $skipNullDeletes = false,
+    ): int {
+        $projection = self::project($dto, $only, $strict, $skipNullDeletes);
         $args = $projection['system'];
         unset($args['ID']);
 
@@ -165,13 +169,14 @@ final class PostSink
         ?int $postId = null,
         ?array $only = null,
         bool $strict = false,
+        bool $skipNullDeletes = false,
     ): int {
         $postId ??= self::identifierOf($dto);
         if ($postId <= 0) {
             throw MissingIdentifierException::forUpdate($dto::class, 'id');
         }
 
-        $projection = self::project($dto, $only, $strict);
+        $projection = self::project($dto, $only, $strict, $skipNullDeletes);
         $args = $projection['system'];
         $args['ID'] = $postId;
 
@@ -200,21 +205,29 @@ final class PostSink
      * @param list<string>|null $only
      * @return int post ID
      */
-    public static function save(DataObject $dto, ?array $only = null, bool $strict = false): int
-    {
+    public static function save(
+        DataObject $dto,
+        ?array $only = null,
+        bool $strict = false,
+        bool $skipNullDeletes = false,
+    ): int {
         $id = self::tryIdentifierOf($dto);
 
         return $id > 0
-            ? self::update($dto, $id, $only, $strict)
-            : self::insert($dto, $only, $strict);
+            ? self::update($dto, $id, $only, $strict, $skipNullDeletes)
+            : self::insert($dto, $only, $strict, $skipNullDeletes);
     }
 
     /**
      * @param list<string>|null $only
      * @return array{system: array<string, mixed>, meta: array<string, mixed>, metaToDelete: list<string>}
      */
-    private static function project(DataObject $dto, ?array $only, bool $strict = false): array
-    {
+    private static function project(
+        DataObject $dto,
+        ?array $only,
+        bool $strict = false,
+        bool $skipNullDeletes = false,
+    ): array {
         return SinkProjection::project(
             $dto,
             PostField::class,
@@ -223,6 +236,7 @@ final class PostSink
             only: $only,
             gmtSystemFields: self::GMT_FIELDS,
             strict: $strict,
+            skipNullDeletes: $skipNullDeletes,
         );
     }
 
