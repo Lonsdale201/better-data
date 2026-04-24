@@ -338,7 +338,17 @@ class Presenter
         if ($this->rename !== []) {
             $renamed = [];
             foreach ($out as $key => $value) {
-                $renamed[$this->rename[$key] ?? $key] = $value;
+                $target = $this->rename[$key] ?? $key;
+                if (array_key_exists($target, $renamed)) {
+                    throw new \LogicException(sprintf(
+                        'rename() collision: source keys "%s" and "%s" both map to output key "%s". '
+                        . 'Drop one rename or hide the source field before rendering.',
+                        array_search($renamed[$target], $out, true),
+                        $key,
+                        $target,
+                    ));
+                }
+                $renamed[$target] = $value;
             }
             $out = $renamed;
         }
@@ -349,6 +359,10 @@ class Presenter
     public function toJson(?int $flags = null): string
     {
         $flags ??= JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+        // Force JSON_THROW_ON_ERROR on regardless of caller-supplied
+        // flags so the declared `string` return type holds — json_encode
+        // would otherwise return `false` on failure.
+        $flags |= JSON_THROW_ON_ERROR;
 
         return json_encode($this->toArray(), $flags);
     }

@@ -259,6 +259,28 @@ final class PresenterTest extends TestCase
         ], $out);
     }
 
+    public function testRenameCollisionThrowsAtToArray(): void
+    {
+        $user = UserDto::fromArray(['email' => 'a@b.c', 'name' => 'A']);
+
+        $presenter = Presenter::for($user)
+            ->rename('email', 'same')
+            ->rename('name', 'same');
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('rename() collision');
+        $presenter->toArray();
+    }
+
+    public function testToJsonAlwaysUsesJsonThrowOnErrorEvenWithCustomFlags(): void
+    {
+        $user = UserDto::fromArray(['email' => 'a@b.c']);
+
+        // Non-zero flags without JSON_THROW_ON_ERROR — still returns string
+        $json = Presenter::for($user)->toJson(JSON_UNESCAPED_SLASHES);
+        self::assertIsString($json);
+    }
+
     public function testOnlyStrictThrowsOnUnknownField(): void
     {
         $user = UserDto::fromArray(['email' => 'a@b.c']);

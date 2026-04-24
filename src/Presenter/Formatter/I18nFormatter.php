@@ -19,38 +19,35 @@ use BetterData\Presenter\PresentationContext;
  */
 final readonly class I18nFormatter
 {
-    /**
-     * @phpstan-ignore-next-line property.onlyWritten — context reserved for future locale override
-     */
     public function __construct(private PresentationContext $context, private string $textDomain = 'default')
     {
     }
 
     public function t(string $text): string
     {
-        if (\function_exists('__')) {
-            return \__($text, $this->textDomain);
-        }
-
-        return $text;
+        return LocaleScope::runIn(
+            $this->context->locale,
+            fn (): string => \function_exists('__') ? \__($text, $this->textDomain) : $text,
+        );
     }
 
     public function x(string $text, string $context): string
     {
-        if (\function_exists('_x')) {
-            return \_x($text, $context, $this->textDomain);
-        }
-
-        return $text;
+        return LocaleScope::runIn(
+            $this->context->locale,
+            fn (): string => \function_exists('_x') ? \_x($text, $context, $this->textDomain) : $text,
+        );
     }
 
     public function n(string $singular, string $plural, int $count): string
     {
-        if (\function_exists('_n')) {
-            return \_n($singular, $plural, $count, $this->textDomain);
-        }
+        return LocaleScope::runIn($this->context->locale, function () use ($singular, $plural, $count): string {
+            if (\function_exists('_n')) {
+                return \_n($singular, $plural, $count, $this->textDomain);
+            }
 
-        return $count === 1 ? $singular : $plural;
+            return $count === 1 ? $singular : $plural;
+        });
     }
 
     /**

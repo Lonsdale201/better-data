@@ -7,6 +7,7 @@ namespace BetterData\Tests\Unit;
 use BetterData\Internal\RestSchemaBuilder;
 use BetterData\Registration\MetaKeyRegistry;
 use BetterData\Tests\Fixtures\ArrayMetaDto;
+use BetterData\Tests\Fixtures\NullableEnumDto;
 use BetterData\Tests\Fixtures\PostBackedDto;
 use BetterData\Tests\Fixtures\ProfileDto;
 use BetterData\Tests\Fixtures\SchemaTestDto;
@@ -132,6 +133,15 @@ final class RestSchemaBuilderTest extends TestCase
         self::assertFalse($args['age']['required']);
         self::assertFalse($args['website']['required']);
         self::assertSame('email', $args['email']['format']);
+    }
+
+    public function testNullableBackedEnumIncludesNullInEnumList(): void
+    {
+        $props = RestSchemaBuilder::build(NullableEnumDto::class)['properties'];
+
+        self::assertSame(['string', 'null'], $props['role']['type']);
+        self::assertContains(null, $props['role']['enum']);
+        self::assertContains('admin', $props['role']['enum']);
     }
 
     public function testToJsonSchemaAliasMatchesDeprecatedToRestSchema(): void

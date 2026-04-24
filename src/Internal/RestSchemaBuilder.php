@@ -161,6 +161,12 @@ final class RestSchemaBuilder
                 /** @var BackedEnum $case */
                 $values[] = $case->value;
             }
+            if ($nullable) {
+                // JSON Schema validators reject `null` against an enum
+                // list that doesn't include null, even when the `type`
+                // allows it. Include null explicitly.
+                $values[] = null;
+            }
             $schema = ['enum' => $values];
             if (is_string($values[0] ?? null)) {
                 $schema['type'] = $nullable ? ['string', 'null'] : 'string';

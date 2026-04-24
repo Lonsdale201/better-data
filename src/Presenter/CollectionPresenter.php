@@ -157,6 +157,7 @@ final class CollectionPresenter
     public function toJson(?int $flags = null): string
     {
         $flags ??= JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+        $flags |= JSON_THROW_ON_ERROR;
 
         return json_encode($this->toArray(), $flags);
     }

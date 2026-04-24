@@ -34,12 +34,16 @@ final readonly class DateTimeFormatter
             $instance = $instance->setTimezone(new DateTimeZone($this->context->timezone));
         }
 
-        if (\function_exists('wp_date')) {
-            $result = \wp_date($format, $instance->getTimestamp(), $instance->getTimezone());
+        $callback = function () use ($format, $instance): string {
+            if (\function_exists('wp_date')) {
+                $result = \wp_date($format, $instance->getTimestamp(), $instance->getTimezone());
 
-            return $result !== false ? $result : $instance->format($format);
-        }
+                return $result !== false ? $result : $instance->format($format);
+            }
 
-        return $instance->format($format);
+            return $instance->format($format);
+        };
+
+        return LocaleScope::runIn($this->context->locale, $callback);
     }
 }
