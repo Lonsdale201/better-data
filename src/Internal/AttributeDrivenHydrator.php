@@ -6,6 +6,7 @@ namespace BetterData\Internal;
 
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
+use BetterData\Encryption\EncryptionEngine;
 use BetterData\Exception\DataObjectException;
 use DateTimeImmutable;
 use DateTimeInterface;
@@ -94,6 +95,10 @@ final class AttributeDrivenHydrator
                         $data[$name] = null;
                         continue;
                     }
+                }
+
+                if ($instance->encrypt && is_string($value) && $value !== '') {
+                    $value = EncryptionEngine::decrypt($value, $instance->key);
                 }
 
                 $data[$name] = $value;

@@ -44,6 +44,14 @@ use Attribute;
  * which is `__return_true` for non-protected keys and `__return_false`
  * for keys prefixed with `_` exposed to REST — see the protected-meta
  * warning emitted by `MetaKeyRegistry::register()`.
+ *
+ * `encrypt` (default false) routes this field through
+ * `EncryptionEngine` (AES-256-GCM) on both read and write. Requires
+ * `BETTER_DATA_ENCRYPTION_KEY` in wp-config. Intended for Secret-typed
+ * fields (API keys, tokens, webhook signing keys). Pairs with
+ * `public Secret $field` on the DTO so the plaintext only ever lives
+ * behind the Secret container while in memory. See
+ * {@see \BetterData\Encryption\EncryptionEngine}.
  */
 #[Attribute(Attribute::TARGET_PARAMETER | Attribute::TARGET_PROPERTY)]
 final readonly class MetaKey
@@ -57,6 +65,7 @@ final readonly class MetaKey
         public ?string $description = null,
         public ?string $sanitize = null,
         public ?string $authCapability = null,
+        public bool $encrypt = false,
     ) {
     }
 }

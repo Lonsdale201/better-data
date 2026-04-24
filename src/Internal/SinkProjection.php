@@ -8,6 +8,7 @@ use BackedEnum;
 use BetterData\Attribute\DateFormat;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
+use BetterData\Encryption\EncryptionEngine;
 use BetterData\Exception\UnknownFieldException;
 use BetterData\Secret;
 use DateTimeImmutable;
@@ -88,12 +89,16 @@ final class SinkProjection
                 if ($value === null) {
                     $metaToDelete[] = $instance->key;
                 } else {
-                    $meta[$instance->key] = self::prepareValue(
+                    $prepared = self::prepareValue(
                         $value,
                         $parameter,
                         null,
                         false,
                     );
+                    if ($instance->encrypt && is_string($prepared) && $prepared !== '') {
+                        $prepared = EncryptionEngine::encrypt($prepared);
+                    }
+                    $meta[$instance->key] = $prepared;
                 }
                 continue;
             }
