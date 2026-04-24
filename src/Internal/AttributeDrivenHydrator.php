@@ -18,7 +18,13 @@ use ReflectionClass;
  *  - `$objectFields`:   flat array of the record's native fields (e.g. (array) $post)
  *  - `$knownFields`:    canonical system field names for the record type
  *  - `$fieldAttribute`: attribute class used to rename a property to a system field
- *  - `$metaFetcher`:    callable that returns a single meta value by key
+ *  - `$metaFetcher`:    callable that returns a single meta value by key.
+ *                       Contract: return `null` when the meta key does
+ *                       not exist on the record; return the stored value
+ *                       (including `''` and other falsey scalars) when
+ *                       it does. This lets the engine distinguish a
+ *                       legitimately-stored empty string from a missing
+ *                       entry that should fall back to the DTO default.
  *  - `$propertyAliases`: property-name → system-field-name auto-aliases
  *                       (e.g. ['id' => 'ID'] for post/user, ['id' => 'term_id'] for term)
  *
@@ -64,7 +70,7 @@ final class AttributeDrivenHydrator
                 $instance = $metaAttr->newInstance();
                 $value = $metaFetcher($instance->key);
 
-                if ($value === '' || $value === false) {
+                if ($value === null) {
                     if ($parameter->isDefaultValueAvailable()) {
                         continue;
                     }

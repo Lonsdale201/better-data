@@ -108,6 +108,16 @@ final class CollectionPresenter
         return $this;
     }
 
+    /**
+     * @param list<string> $fields
+     */
+    public function includeSensitive(array $fields): self
+    {
+        $this->configurers[] = static fn (Presenter $p): Presenter => $p->includeSensitive($fields);
+
+        return $this;
+    }
+
     public function formatDate(string $field, string $format, ?string $as = null): self
     {
         $this->configurers[] = static fn (Presenter $p): Presenter => $p->formatDate($field, $format, $as);

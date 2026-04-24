@@ -45,7 +45,7 @@ final class AttributeDrivenHydratorTest extends TestCase
             ['ID' => 42, 'post_title' => 'Widget', 'post_status' => 'publish', 'post_date_gmt' => '2026-01-15 10:00:00'],
             self::POST_FIELDS,
             PostField::class,
-            static fn (string $key): mixed => $meta[$key] ?? '',
+            static fn (string $key): mixed => $meta[$key] ?? null,
             ['id' => 'ID'],
         );
 
@@ -64,7 +64,7 @@ final class AttributeDrivenHydratorTest extends TestCase
             ['ID' => 5, 'user_login' => 'jane', 'user_email' => 'j@example.com'],
             self::USER_FIELDS,
             UserField::class,
-            static fn (string $key): mixed => $meta[$key] ?? '',
+            static fn (string $key): mixed => $meta[$key] ?? null,
             ['id' => 'ID'],
         );
 
@@ -82,11 +82,26 @@ final class AttributeDrivenHydratorTest extends TestCase
             ['ID' => 1, 'user_login' => 'x', 'user_email' => 'x@y.z'],
             self::USER_FIELDS,
             UserField::class,
-            static fn (string $key): mixed => '',
+            static fn (string $key): mixed => null,
             ['id' => 'ID'],
         );
 
         self::assertNull($dto->billingCity);
+        self::assertSame(0, $dto->loyaltyPoints);
+    }
+
+    public function testEmptyStringMetaPreservedWhenKeyExists(): void
+    {
+        $dto = AttributeDrivenHydrator::hydrate(
+            UserBackedDto::class,
+            ['ID' => 7, 'user_login' => 'x', 'user_email' => 'x@y.z'],
+            self::USER_FIELDS,
+            UserField::class,
+            static fn (string $key): mixed => $key === 'billing_city' ? '' : null,
+            ['id' => 'ID'],
+        );
+
+        self::assertSame('', $dto->billingCity, 'empty string stored in meta must round-trip, not fall back to default');
         self::assertSame(0, $dto->loyaltyPoints);
     }
 
@@ -99,7 +114,7 @@ final class AttributeDrivenHydratorTest extends TestCase
             ['term_id' => 9, 'name' => 'Featured', 'slug' => 'featured', 'taxonomy' => 'category'],
             self::TERM_FIELDS,
             TermField::class,
-            static fn (string $key): mixed => $meta[$key] ?? '',
+            static fn (string $key): mixed => $meta[$key] ?? null,
             ['id' => 'term_id'],
         );
 
@@ -117,7 +132,7 @@ final class AttributeDrivenHydratorTest extends TestCase
             ['term_id' => 123, 'name' => 'A', 'slug' => 'a', 'taxonomy' => 'tag'],
             self::TERM_FIELDS,
             TermField::class,
-            static fn (string $key): mixed => '',
+            static fn (string $key): mixed => null,
             ['id' => 'term_id'],
         );
 

@@ -28,15 +28,22 @@ final class UserSource
     /**
      * @var list<string>
      */
+    /**
+     * Auto-detect list for property→field mapping.
+     *
+     * `user_pass` and `user_activation_key` are intentionally omitted: a
+     * property named `user_pass` (a common thing) would otherwise
+     * silently hydrate the bcrypt hash onto the DTO. Consumers that
+     * genuinely need these on the DTO must declare them explicitly with
+     * `#[UserField('user_pass')]`.
+     */
     private const USER_FIELDS = [
         'ID',
         'user_login',
-        'user_pass',
         'user_nicename',
         'user_email',
         'user_url',
         'user_registered',
-        'user_activation_key',
         'user_status',
         'display_name',
     ];
@@ -62,7 +69,14 @@ final class UserSource
             $fields,
             self::USER_FIELDS,
             UserField::class,
-            static fn (string $key): mixed => \get_user_meta($userId, $key, true),
+            static function (string $key) use ($userId): mixed {
+                if (\function_exists('metadata_exists')
+                    && !\metadata_exists('user', $userId, $key)) {
+                    return null;
+                }
+
+                return \get_user_meta($userId, $key, true);
+            },
             ['id' => 'ID'],
         );
     }

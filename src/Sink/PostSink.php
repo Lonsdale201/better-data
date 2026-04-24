@@ -33,6 +33,16 @@ use BetterData\Internal\SinkProjection;
  *  - Non-null DTO value → `update_post_meta($id, $key, $value)`
  *  - Null DTO value     → `delete_post_meta($id, $key)`
  *
+ * Slashing policy:
+ *  - Convenience methods (`insert` / `update` / `save`) pass values
+ *    through `wp_slash()` before handing them to
+ *    `wp_insert_post` / `wp_update_post` / `update_post_meta` /
+ *    `meta_input`, because the core WP write pipeline calls
+ *    `wp_unslash()` on inbound data. Without slashing, a value
+ *    containing `\"` would round-trip to `"`.
+ *  - Projection methods (`toArgs` / `toMeta`) return RAW values — the
+ *    caller that issues its own WP calls is responsible for slashing.
+ *
  * Update requires the DTO to carry a post identifier (`id` property or
  * anything attribute-mapped to `ID`). Without it, `MissingIdentifierException`.
  */
@@ -127,6 +137,8 @@ final class PostSink
             $args['meta_input'] = $meta['write'];
         }
 
+        $args = \wp_slash($args);
+
         $result = \wp_insert_post($args, true);
 
         if (\is_wp_error($result)) {
@@ -159,7 +171,7 @@ final class PostSink
         unset($args['meta_input']);
         $args['ID'] = $postId;
 
-        $result = \wp_update_post($args, true);
+        $result = \wp_update_post(\wp_slash($args), true);
         if (\is_wp_error($result)) {
             throw new \RuntimeException(
                 'wp_update_post failed: ' . $result->get_error_message(),
@@ -168,7 +180,7 @@ final class PostSink
 
         $meta = self::toMeta($dto, $only);
         foreach ($meta['write'] as $key => $value) {
-            \update_post_meta($postId, $key, $value);
+            \update_post_meta($postId, $key, \wp_slash($value));
         }
         foreach ($meta['delete'] as $key) {
             \delete_post_meta($postId, $key);

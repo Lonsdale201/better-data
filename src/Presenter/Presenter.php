@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace BetterData\Presenter;
 
 use BackedEnum;
+use BetterData\Attribute\Sensitive;
 use BetterData\DataObject;
 use BetterData\Presenter\Formatter\CurrencyFormatter;
 use BetterData\Presenter\Formatter\DateTimeFormatter;
@@ -86,6 +87,11 @@ class Presenter
      * @var array<string, \Closure>
      */
     private array $presets = [];
+
+    /**
+     * @var list<string>
+     */
+    private array $includeSensitive = [];
 
     public function __construct(protected readonly DataObject $dto)
     {
@@ -226,6 +232,20 @@ class Presenter
     }
 
     /**
+     * Opt in to include otherwise-sensitive fields (properties carrying
+     * `#[Sensitive]`). Pass a whitelist of property names; anything
+     * outside the list stays redacted.
+     *
+     * @param list<string> $fields
+     */
+    public function includeSensitive(array $fields): static
+    {
+        $this->includeSensitive = $fields;
+
+        return $this;
+    }
+
+    /**
      * Format a DateTime property through the `DateTimeFormatter` (locale
      * + timezone aware via context). If `$as` is null, the original
      * field value is replaced with the formatted string; otherwise a new
@@ -279,7 +299,14 @@ class Presenter
      */
     public function toArray(): array
     {
+        $sensitive = $this->sensitiveFieldNames();
         $out = $this->collectDtoFields();
+
+        foreach ($sensitive as $name) {
+            if (!in_array($name, $this->includeSensitive, true)) {
+                unset($out[$name]);
+            }
+        }
 
         foreach ($this->computed as $name => $factory) {
             if (!$this->isFieldSurviving($name)) {
@@ -381,6 +408,37 @@ class Presenter
         }
 
         return true;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function sensitiveFieldNames(): array
+    {
+        $names = [];
+        $reflection = new ReflectionClass($this->dto);
+        foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+            if ($property->getAttributes(Sensitive::class) !== []) {
+                $names[] = $property->getName();
+            }
+        }
+
+        $constructor = $reflection->getConstructor();
+        if ($constructor !== null) {
+            foreach ($constructor->getParameters() as $parameter) {
+                if ($parameter->getAttributes(Sensitive::class) !== []) {
+                    $name = $parameter->getName();
+                    if (!in_array($name, $names, true)) {
+                        $names[] = $name;
+                    }
+                }
+            }
+        }
+
+        return $names;
     }
 
     private function shouldHide(string $name): bool

@@ -59,7 +59,14 @@ final class TermSource
             $termFields,
             self::TERM_FIELDS,
             TermField::class,
-            static fn (string $key): mixed => \get_term_meta($termId, $key, true),
+            static function (string $key) use ($termId): mixed {
+                if (\function_exists('metadata_exists')
+                    && !\metadata_exists('term', $termId, $key)) {
+                    return null;
+                }
+
+                return \get_term_meta($termId, $key, true);
+            },
             ['id' => 'term_id'],
         );
     }

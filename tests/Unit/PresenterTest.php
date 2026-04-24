@@ -8,6 +8,7 @@ use BetterData\Presenter\PresentationContext;
 use BetterData\Presenter\Presenter;
 use BetterData\Tests\Fixtures\AddressDto;
 use BetterData\Tests\Fixtures\ProfileDto;
+use BetterData\Tests\Fixtures\SensitiveAccountDto;
 use BetterData\Tests\Fixtures\UserDto;
 use BetterData\Tests\Fixtures\UserRole;
 use PHPUnit\Framework\TestCase;
@@ -224,6 +225,38 @@ final class PresenterTest extends TestCase
         // No WP runtime in unit tests → user_can / get_userdata not defined
         self::assertFalse($ctx->userCan('manage_options'));
         self::assertSame([], $ctx->userRoles());
+    }
+
+    public function testSensitiveFieldsOmittedByDefault(): void
+    {
+        $dto = SensitiveAccountDto::fromArray([
+            'email' => 'a@b.c',
+            'apiKey' => 'secret-key',
+            'recoveryToken' => 'tok-xyz',
+        ]);
+
+        $out = Presenter::for($dto)->toArray();
+
+        self::assertSame(['email' => 'a@b.c'], $out);
+        $json = Presenter::for($dto)->toJson();
+        self::assertStringNotContainsString('secret-key', $json);
+        self::assertStringNotContainsString('tok-xyz', $json);
+    }
+
+    public function testIncludeSensitiveRestoresSelectedFields(): void
+    {
+        $dto = SensitiveAccountDto::fromArray([
+            'email' => 'a@b.c',
+            'apiKey' => 'secret-key',
+            'recoveryToken' => 'tok-xyz',
+        ]);
+
+        $out = Presenter::for($dto)->includeSensitive(['apiKey'])->toArray();
+
+        self::assertSame([
+            'email' => 'a@b.c',
+            'apiKey' => 'secret-key',
+        ], $out);
     }
 
     public function testPresentationContextImmutableWithers(): void

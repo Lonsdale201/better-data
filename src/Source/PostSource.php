@@ -79,7 +79,14 @@ final class PostSource
             $postFields,
             self::POST_FIELDS,
             PostField::class,
-            static fn (string $key): mixed => \get_post_meta($postId, $key, true),
+            static function (string $key) use ($postId): mixed {
+                if (\function_exists('metadata_exists')
+                    && !\metadata_exists('post', $postId, $key)) {
+                    return null;
+                }
+
+                return \get_post_meta($postId, $key, true);
+            },
             ['id' => 'ID'],
         );
     }

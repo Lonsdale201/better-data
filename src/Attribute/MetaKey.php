@@ -31,12 +31,19 @@ use Attribute;
  * If `$type` is null, it's inferred from the property's PHP type at
  * registration time.
  *
- * `autoSanitize` (default false) opts into a registry-installed
- * sanitize_callback that routes writes through the library's TypeCoercer.
- * Left off by default to avoid stepping on consumers' existing pipelines.
+ * `sanitize` (default null) accepts a callable name (string) to install
+ * as `sanitize_callback`. Pass WP's own helpers (`'sanitize_text_field'`,
+ * `'absint'`, etc.) or your own function. The library intentionally does
+ * NOT auto-sanitize through its internal TypeCoercer — that coercer
+ * produces PHP-native types, which is the wrong shape for WP-storable
+ * scalars, and silently installing it would step on consumers' existing
+ * sanitize pipelines. If you need sanitization, supply it explicitly.
  *
  * `authCapability` (default null) installs an auth_callback that defers
- * to `current_user_can($cap)`. Null keeps WP's default permissive behaviour.
+ * to `user_can($user_id, $cap, $object_id)`. Null keeps WP's default,
+ * which is `__return_true` for non-protected keys and `__return_false`
+ * for keys prefixed with `_` exposed to REST — see the protected-meta
+ * warning emitted by `MetaKeyRegistry::register()`.
  */
 #[Attribute(Attribute::TARGET_PARAMETER | Attribute::TARGET_PROPERTY)]
 final readonly class MetaKey
@@ -48,7 +55,7 @@ final readonly class MetaKey
         public bool $single = true,
         public mixed $default = null,
         public ?string $description = null,
-        public bool $autoSanitize = false,
+        public ?string $sanitize = null,
         public ?string $authCapability = null,
     ) {
     }

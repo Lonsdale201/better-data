@@ -20,6 +20,9 @@ use BetterData\Internal\SinkProjection;
  * `term_taxonomy_id`, `parent`, and `count` are taxonomy-internal —
  * WP computes them. If the DTO declares them, they're ignored at write
  * time (WP docs: "`term_taxonomy_id` is read-only").
+ *
+ * Slashing policy: see PostSink. Convenience methods slash via
+ * `wp_slash()`; projections stay raw.
  */
 final class TermSink
 {
@@ -84,7 +87,11 @@ final class TermSink
             ));
         }
 
-        $result = \wp_insert_term($parts['name'], $parts['taxonomy'], $parts['args']);
+        $result = \wp_insert_term(
+            \wp_slash($parts['name']),
+            $parts['taxonomy'],
+            \wp_slash($parts['args']),
+        );
         if (\is_wp_error($result)) {
             throw new \RuntimeException(
                 'wp_insert_term failed: ' . $result->get_error_message(),
@@ -120,7 +127,7 @@ final class TermSink
             $args['name'] = $parts['name'];
         }
 
-        $result = \wp_update_term($termId, $parts['taxonomy'], $args);
+        $result = \wp_update_term($termId, $parts['taxonomy'], \wp_slash($args));
         if (\is_wp_error($result)) {
             throw new \RuntimeException(
                 'wp_update_term failed: ' . $result->get_error_message(),
@@ -167,7 +174,7 @@ final class TermSink
     private static function applyMeta(array $meta, int $termId): void
     {
         foreach ($meta['write'] as $key => $value) {
-            \update_term_meta($termId, $key, $value);
+            \update_term_meta($termId, $key, \wp_slash($value));
         }
         foreach ($meta['delete'] as $key) {
             \delete_term_meta($termId, $key);

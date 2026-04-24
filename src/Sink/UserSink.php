@@ -22,6 +22,9 @@ use BetterData\Internal\SinkProjection;
  *
  *   If your DTO declares `user_pass` / `user_activation_key`, they are
  *   silently dropped here — document this clearly for your team.
+ *
+ * Slashing policy: see PostSink. Convenience methods slash via
+ * `wp_slash()`; projections stay raw.
  */
 final class UserSink
 {
@@ -82,7 +85,7 @@ final class UserSink
         $args = self::toArgs($dto, $only);
         unset($args['ID']);
 
-        $result = \wp_insert_user($args);
+        $result = \wp_insert_user(\wp_slash($args));
         if (\is_wp_error($result)) {
             throw new \RuntimeException(
                 'wp_insert_user failed: ' . $result->get_error_message(),
@@ -108,7 +111,7 @@ final class UserSink
         $args = self::toArgs($dto, $only);
         $args['ID'] = $userId;
 
-        $result = \wp_update_user($args);
+        $result = \wp_update_user(\wp_slash($args));
         if (\is_wp_error($result)) {
             throw new \RuntimeException(
                 'wp_update_user failed: ' . $result->get_error_message(),
@@ -154,7 +157,7 @@ final class UserSink
     {
         $meta = self::toMeta($dto, $only);
         foreach ($meta['write'] as $key => $value) {
-            \update_user_meta($userId, $key, $value);
+            \update_user_meta($userId, $key, \wp_slash($value));
         }
         foreach ($meta['delete'] as $key) {
             \delete_user_meta($userId, $key);

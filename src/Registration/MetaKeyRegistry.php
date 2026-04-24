@@ -7,7 +7,6 @@ namespace BetterData\Registration;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
 use BetterData\Internal\RestSchemaBuilder;
-use BetterData\Internal\TypeCoercer;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
@@ -75,12 +74,46 @@ final class MetaKeyRegistry
 
         $registered = [];
         foreach (self::collectMetaParameters($dtoClass) as [$parameter, $meta]) {
+            self::guardProtectedMetaShowInRest($meta);
             $args = self::buildRegisterArgs($parameter, $meta, $objectType, $subtype);
             \register_meta($objectType, $meta->key, $args);
             $registered[] = $meta->key;
         }
 
         return $registered;
+    }
+
+    /**
+     * WordPress force-returns `__return_false` for auth_callback on any
+     * protected meta key (those prefixed with `_`) exposed to REST when
+     * no explicit auth_callback is set. Registering such a key without
+     * `authCapability` results in a silent 403 at write time. Emit an
+     * early warning so consumers don't chase ghost permissions errors.
+     */
+    private static function guardProtectedMetaShowInRest(MetaKey $meta): void
+    {
+        if (!$meta->showInRest) {
+            return;
+        }
+        if (!str_starts_with($meta->key, '_')) {
+            return;
+        }
+        if ($meta->authCapability !== null) {
+            return;
+        }
+
+        if (\function_exists('_doing_it_wrong')) {
+            \_doing_it_wrong(
+                'BetterData\\Registration\\MetaKeyRegistry::register',
+                sprintf(
+                    'Protected meta key "%s" is exposed via show_in_rest without an authCapability. '
+                    . 'WordPress defaults the auth_callback of `_`-prefixed keys to `__return_false`, so REST writes will silently 403. '
+                    . 'Either drop the leading underscore, or set an explicit `authCapability` on the #[MetaKey] attribute.',
+                    $meta->key,
+                ),
+                '0.1.0',
+            );
+        }
     }
 
     /**
@@ -147,8 +180,8 @@ final class MetaKeyRegistry
             ];
         }
 
-        if ($meta->autoSanitize) {
-            $args['sanitize_callback'] = self::makeSanitizeCallback($parameter);
+        if ($meta->sanitize !== null && \is_callable($meta->sanitize)) {
+            $args['sanitize_callback'] = $meta->sanitize;
         }
 
         if ($meta->authCapability !== null) {
@@ -178,21 +211,6 @@ final class MetaKeyRegistry
             'array' => 'array',
             'string' => 'string',
             default => 'string',
-        };
-    }
-
-    private static function makeSanitizeCallback(ReflectionParameter $parameter): \Closure
-    {
-        $declaringClass = $parameter->getDeclaringClass()?->getName() ?? 'unknown';
-        $fieldName = $parameter->getName();
-        $type = $parameter->getType();
-
-        return static function (mixed $value) use ($declaringClass, $fieldName, $type): mixed {
-            try {
-                return TypeCoercer::coerce($declaringClass, $fieldName, $type, $value);
-            } catch (\Throwable) {
-                return $value;
-            }
         };
     }
 

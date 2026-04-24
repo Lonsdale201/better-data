@@ -7,22 +7,34 @@ namespace BetterData\Source;
 use BetterData\DataObject;
 use BetterData\Exception\CapabilityCheckFailedException;
 use BetterData\Exception\NonceVerificationFailedException;
+use BetterData\Exception\RequestParamCollisionException;
 
 /**
  * Builder that hydrates a DataObject from a `WP_REST_Request` with
- * optional nonce and capability guards.
+ * optional nonce, capability, and param-source guards.
  *
  * Guards execute in the order they were declared, before the payload is
  * read. A failing guard throws; a successful chain reaches `into()`,
- * which feeds `WP_REST_Request::get_params()` (URL + body + JSON merged
- * the WP standard way) to `DataObject::fromArray()`.
+ * which feeds a chosen param bucket to `DataObject::fromArray()`.
  *
  * ```php
  * $dto = RequestSource::from($request)
  *     ->requireNonce('my_plugin_save')
  *     ->requireCapability('manage_options')
+ *     ->bodyOnly()
+ *     ->noCollision(['id'])
  *     ->into(SaveSettingsDto::class);
  * ```
+ *
+ * Param-source scoping (`bodyOnly` / `jsonOnly` / `queryOnly` / `urlOnly`)
+ * limits which bucket the DTO is built from. Default — no call — keeps
+ * the existing WP-merged behaviour via `get_params()`, preserving
+ * backward compatibility.
+ *
+ * `noCollision($routeOwnedFields)` asserts that none of the listed
+ * fields appear in any client-controlled bucket (body, JSON, or query)
+ * — only URL/route params are allowed to supply them. Use this to stop
+ * a malicious body from overriding an id owned by the URL.
  *
  * Exceptions propagate — the handler chooses whether to catch and
  * translate to `WP_REST_Response` / `WP_Error`, or let the framework
@@ -34,6 +46,11 @@ final class RequestSource
      * @var list<callable(\WP_REST_Request): void>
      */
     private array $guards = [];
+
+    /**
+     * @var null|'body'|'json'|'query'|'url'
+     */
+    private ?string $source = null;
 
     private function __construct(private readonly \WP_REST_Request $request)
     {
@@ -81,6 +98,85 @@ final class RequestSource
     }
 
     /**
+     * Restrict hydration input to the request body params
+     * (`WP_REST_Request::get_body_params()`).
+     */
+    public function bodyOnly(): self
+    {
+        $this->source = 'body';
+
+        return $this;
+    }
+
+    /**
+     * Restrict hydration input to the parsed JSON body
+     * (`WP_REST_Request::get_json_params()`).
+     */
+    public function jsonOnly(): self
+    {
+        $this->source = 'json';
+
+        return $this;
+    }
+
+    /**
+     * Restrict hydration input to the query string
+     * (`WP_REST_Request::get_query_params()`).
+     */
+    public function queryOnly(): self
+    {
+        $this->source = 'query';
+
+        return $this;
+    }
+
+    /**
+     * Restrict hydration input to URL/route params
+     * (`WP_REST_Request::get_url_params()`) — path segments like `{id}`.
+     */
+    public function urlOnly(): self
+    {
+        $this->source = 'url';
+
+        return $this;
+    }
+
+    /**
+     * Assert that none of the listed field names appear in any
+     * client-controlled bucket (body, JSON, or query). Only URL/route
+     * params may supply them. Throws `RequestParamCollisionException`
+     * when violated.
+     *
+     * @param list<string> $routeOwnedFields
+     */
+    public function noCollision(array $routeOwnedFields): self
+    {
+        $this->guards[] = static function (\WP_REST_Request $request) use ($routeOwnedFields): void {
+            $clientBuckets = [
+                $request->get_body_params(),
+                (array) $request->get_json_params(),
+                $request->get_query_params(),
+            ];
+
+            $collisions = [];
+            foreach ($routeOwnedFields as $field) {
+                foreach ($clientBuckets as $bucket) {
+                    if (is_array($bucket) && array_key_exists($field, $bucket)) {
+                        $collisions[] = $field;
+                        continue 2;
+                    }
+                }
+            }
+
+            if ($collisions !== []) {
+                throw RequestParamCollisionException::forFields($collisions);
+            }
+        };
+
+        return $this;
+    }
+
+    /**
      * Run all guards, then hydrate.
      *
      * @template T of DataObject
@@ -93,9 +189,25 @@ final class RequestSource
             $guard($this->request);
         }
 
-        /** @var array<string, mixed> $params */
-        $params = $this->request->get_params();
+        $params = $this->resolveParams();
 
         return $dtoClass::fromArray($params);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveParams(): array
+    {
+        /** @var array<string, mixed> $params */
+        $params = match ($this->source) {
+            'body' => $this->request->get_body_params(),
+            'json' => (array) $this->request->get_json_params(),
+            'query' => $this->request->get_query_params(),
+            'url' => $this->request->get_url_params(),
+            default => $this->request->get_params(),
+        };
+
+        return $params;
     }
 }
