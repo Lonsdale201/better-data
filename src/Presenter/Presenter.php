@@ -10,8 +10,10 @@ use BetterData\DataObject;
 use BetterData\Exception\UnknownFieldException;
 use BetterData\Presenter\Formatter\CurrencyFormatter;
 use BetterData\Presenter\Formatter\DateTimeFormatter;
+use BetterData\Secret;
 use DateTimeInterface;
 use ReflectionClass;
+use ReflectionNamedType;
 use ReflectionProperty;
 
 /**
@@ -417,6 +419,14 @@ class Presenter
         if ($value instanceof DateTimeInterface) {
             return $value->format(DateTimeInterface::ATOM);
         }
+        if ($value instanceof Secret) {
+            // Always redacted in the default render path, even when
+            // the field was explicitly opted in via `includeSensitive`.
+            // Callers who genuinely need the raw value must reveal it
+            // inside a `compute()` closure so the reveal site is
+            // auditable at the call level.
+            return $value->jsonSerialize();
+        }
 
         return $value;
     }
@@ -453,6 +463,19 @@ class Presenter
     }
 
     /**
+     * Property names considered sensitive. Two sources:
+     *   1. Properties (or promoted params) carrying `#[Sensitive]` —
+     *      the PII redaction marker.
+     *   2. Properties typed as `BetterData\Secret` — cryptographic
+     *      secrets, always redacted regardless of attribute.
+     *
+     * Both are excluded from default `toArray()` output. With
+     * `includeSensitive([...])` opt-in:
+     *   - `#[Sensitive]` plain-string fields render their raw value.
+     *   - `Secret`-typed fields render their redacted form (`'***'`)
+     *     unless the caller *also* reveals them inside a `compute()`
+     *     closure with `$dto->field->reveal()`.
+     *
      * @return list<string>
      */
     private function sensitiveFieldNames(): array
@@ -463,7 +486,14 @@ class Presenter
             if ($property->isStatic()) {
                 continue;
             }
-            if ($property->getAttributes(Sensitive::class) !== []) {
+            $isSensitive = $property->getAttributes(Sensitive::class) !== [];
+            if (!$isSensitive) {
+                $type = $property->getType();
+                if ($type instanceof ReflectionNamedType && $type->getName() === Secret::class) {
+                    $isSensitive = true;
+                }
+            }
+            if ($isSensitive) {
                 $names[] = $property->getName();
             }
         }
@@ -471,7 +501,14 @@ class Presenter
         $constructor = $reflection->getConstructor();
         if ($constructor !== null) {
             foreach ($constructor->getParameters() as $parameter) {
-                if ($parameter->getAttributes(Sensitive::class) !== []) {
+                $isSensitive = $parameter->getAttributes(Sensitive::class) !== [];
+                if (!$isSensitive) {
+                    $type = $parameter->getType();
+                    if ($type instanceof ReflectionNamedType && $type->getName() === Secret::class) {
+                        $isSensitive = true;
+                    }
+                }
+                if ($isSensitive) {
                     $name = $parameter->getName();
                     if (!in_array($name, $names, true)) {
                         $names[] = $name;

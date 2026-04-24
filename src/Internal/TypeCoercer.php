@@ -7,6 +7,7 @@ namespace BetterData\Internal;
 use BackedEnum;
 use BetterData\DataObject;
 use BetterData\Exception\TypeCoercionException;
+use BetterData\Secret;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
@@ -101,6 +102,16 @@ final class TypeCoercer
     ): object {
         if ($value instanceof $target) {
             return $value;
+        }
+
+        if ($target === Secret::class) {
+            if (is_string($value)) {
+                return new Secret($value);
+            }
+            if ($value instanceof \Stringable) {
+                return new Secret((string) $value);
+            }
+            throw TypeCoercionException::for($dataObjectClass, $fieldName, $target, $value);
         }
 
         if (is_subclass_of($target, DataObject::class)) {

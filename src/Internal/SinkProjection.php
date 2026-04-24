@@ -9,6 +9,7 @@ use BetterData\Attribute\DateFormat;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
 use BetterData\Exception\UnknownFieldException;
+use BetterData\Secret;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
@@ -184,6 +185,13 @@ final class SinkProjection
     ): mixed {
         if ($value === null) {
             return null;
+        }
+
+        if ($value instanceof Secret) {
+            // Write path: secrets reach storage in their raw form.
+            // Encryption-at-rest (Phase 8.6 Commit 2) interposes here
+            // via the MetaKey attribute's `encrypt: true` flag.
+            return $value->reveal();
         }
 
         if ($value instanceof BackedEnum) {

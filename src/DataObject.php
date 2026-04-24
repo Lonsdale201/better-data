@@ -11,6 +11,7 @@ use BetterData\Validation\BuiltInValidator;
 use BetterData\Validation\ValidationEngineInterface;
 use BetterData\Validation\ValidationResult;
 use DateTimeInterface;
+use JsonSerializable;
 use ReflectionClass;
 
 /**
@@ -107,14 +108,26 @@ abstract readonly class DataObject
     /**
      * Return a new instance with the supplied fields replaced.
      *
-     * Remaining fields are preserved from the current instance. The merged
-     * data is re-hydrated via `fromArray()`, so type coercion runs again.
+     * Remaining fields are preserved from the current instance. The
+     * internal snapshot bypasses `toArray()`'s serialization pass (so
+     * Secret / enum / DateTime values keep their rich types across
+     * `with()`), then `fromArray()` re-runs type coercion on top of the
+     * merged set.
      *
      * @param array<string, mixed> $changes
      */
     public function with(array $changes): static
     {
-        return static::fromArray(array_replace($this->toArray(), $changes));
+        $reflection = new ReflectionClass($this);
+        $snapshot = [];
+        foreach ($reflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+            if ($property->isStatic()) {
+                continue;
+            }
+            $snapshot[$property->getName()] = $property->getValue($this);
+        }
+
+        return static::fromArray(array_replace($snapshot, $changes));
     }
 
     /**
@@ -158,6 +171,17 @@ abstract readonly class DataObject
 
         if ($value instanceof DateTimeInterface) {
             return $value->format(DateTimeInterface::ATOM);
+        }
+
+        if ($value instanceof Secret) {
+            // Leak-proof: the generic toArray path does NOT reveal secrets.
+            // Callers who need the raw value must use Secret::reveal()
+            // explicitly at the call site.
+            return $value->jsonSerialize();
+        }
+
+        if ($value instanceof JsonSerializable) {
+            return $value->jsonSerialize();
         }
 
         if (is_array($value)) {

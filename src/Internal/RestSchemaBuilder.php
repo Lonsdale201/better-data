@@ -7,6 +7,7 @@ namespace BetterData\Internal;
 use BackedEnum;
 use BetterData\Attribute\MetaKey;
 use BetterData\DataObject;
+use BetterData\Secret;
 use BetterData\Validation\Rule\Email;
 use BetterData\Validation\Rule\Max;
 use BetterData\Validation\Rule\MaxLength;
@@ -181,6 +182,16 @@ final class RestSchemaBuilder
             return [
                 'type' => $nullable ? ['string', 'null'] : 'string',
                 'format' => 'date-time',
+            ];
+        }
+
+        if ($name === Secret::class) {
+            // OpenAPI 3 conventional marker for a secret-typed string.
+            // Swagger UI / Redoc render a password input + never echo
+            // the value back.
+            return [
+                'type' => $nullable ? ['string', 'null'] : 'string',
+                'format' => 'password',
             ];
         }
 
