@@ -1,6 +1,6 @@
 # better-data
 
-> **version 0.1** · PHP 8.3+ DTO & Presenter library for WordPress
+> **version 1.0** · PHP 8.3+ DTO & Presenter library for WordPress
 
 Typed hydration of WordPress data into immutable DTOs, contextual output
 shaping back to REST / admin / email / CSV. WordPress-aware without
@@ -40,8 +40,9 @@ On top of that sit the security primitives — `Secret`, `#[Sensitive]`,
 - **Not a form renderer.** Data shaping only — HTML is the consumer's
   problem.
 - **Not a DI container / service bus / router.** Our sibling library
-  `better-route` handles the routing layer; the two are independent
-  today and will compose later.
+  `better-route` handles the routing layer; better-data only ships an
+  optional bridge that lets DTOs feed better-route handlers, args, and
+  OpenAPI metadata.
 - **Not a secrets manager.** `Secret` + `#[Encrypted]` provide
   leak-proof in-memory handling and at-rest AES-256-GCM for meta and
   option values. Key distribution, rotation, and vault integration are
@@ -59,12 +60,32 @@ On top of that sit the security primitives — `Secret`, `#[Sensitive]`,
 
 ## Installation
 
-```bash
-composer require better-data/better-data
+The package is not on Packagist yet. Install it via a Composer VCS
+repository pointing at the public GitHub repo:
+
+```json
+{
+  "require": {
+    "better-data/better-data": "^1.0"
+  },
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/Lonsdale201/better-data"
+    }
+  ],
+  "prefer-stable": true
+}
 ```
 
-Once v0.1 is tagged on Packagist. For now, declare a local path
-repository pointing at a checkout.
+Then:
+
+```bash
+composer update better-data/better-data
+```
+
+After the package lands on Packagist you can drop the `repositories`
+block and keep only `require`.
 
 ---
 
@@ -199,6 +220,84 @@ add_action('rest_api_init', function () {
                 ->saveAsPost(),
     ]);
 });
+```
+
+### 6. Compose with better-route
+
+`BetterData\Route\BetterRouteBridge` wires a DTO into a
+better-route `Router` without making better-route a hard dependency of
+this package.
+
+```php
+use BetterData\Route\BetterRouteBridge;
+use BetterRoute\BetterRoute;
+
+add_action('rest_api_init', function () {
+    $router = BetterRoute::router('shop', 'v1');
+
+    BetterRouteBridge::post(
+        $router,
+        '/products',
+        ProductDto::class,
+        function (ProductDto $dto): ProductDto {
+            $id = $dto->saveAsPost();
+
+            return $dto->with(['id' => $id]);
+        },
+        [
+            'operationId' => 'productsCreate',
+            'tags' => ['Products'],
+            'envelope' => true,
+            'permissionCallback' => static fn (): bool => current_user_can('edit_posts'),
+        ],
+    );
+
+    BetterRouteBridge::patch(
+        $router,
+        '/products/(?P<id>\d+)',
+        ProductDto::class,
+        function (ProductDto $dto): ProductDto {
+            $dto->saveAsPost(only: ['price', 'stock']);
+
+            return $dto;
+        },
+        [
+            'source' => 'json',
+            'routeFields' => ['id'],
+            'operationId' => 'productsUpdate',
+            'tags' => ['Products'],
+            'envelope' => true,
+            'permissionCallback' => static fn (): bool => current_user_can('edit_posts'),
+        ],
+    );
+
+    $router->register();
+});
+```
+
+The bridge:
+
+- hydrates and validates the DTO from query / JSON / body / URL params
+- marks route-owned fields (for example `id`) as URL-authoritative and
+  rejects body/query collisions
+- feeds `MetaKeyRegistry::toRestArgs()` into `RouteBuilder::args()`
+- feeds generated `requestSchema`, `responseSchema`, tags, scopes, and
+  parameters into `RouteBuilder::meta()`
+- presents returned `DataObject` values through `Presenter` with
+  `PresentationContext::rest()`
+
+For better-route's OpenAPI exporter, merge DTO schemas into the
+exporter options:
+
+```php
+$components = BetterData\Route\BetterRouteBridge::openApiComponents([
+    ProductDto::class,
+]);
+
+$openApi = BetterRoute::openApiExporter()->export(
+    $router->contracts(true),
+    ['components' => $components],
+);
 ```
 
 ---
@@ -511,9 +610,10 @@ two test paths:
 
 ## Versioning
 
-Semver once 0.1 ships. While the 0.x series is in flight, expect
-breaking changes between minor releases with migration notes in
-`CHANGELOG.md`. API lock-in lands at 1.0.
+Semver from v1.0 onwards. Public API surface — `DataObject`,
+attributes, sources, sinks, `Presenter`, `MetaKeyRegistry`,
+`BetterRouteBridge` — is stable. Breaking changes require a major
+bump and migration notes.
 
 ---
 
@@ -525,6 +625,6 @@ MIT © Soczó Kristóf
 
 ## Related
 
-- **`better-route`** — sibling routing library. Independent today; a
-  joint integration pack (`better-data-route`) will compose the two
-  once better-route hits release.
+- **`better-route`** — sibling routing library. Use
+  `BetterData\Route\BetterRouteBridge` when a route should hydrate,
+  validate, document, and present better-data DTOs.

@@ -364,7 +364,63 @@ typed values.
 
 ---
 
-## Skill 9 — Work on the companion plugin
+## Skill 9 — Compose with better-route
+
+**Trigger:** any task that asks better-data to work with
+`better-route`, register DTO-backed REST endpoints, feed DTO schemas
+into better-route OpenAPI output, or move request data from a
+better-route handler into a better-data `DataObject`.
+
+**Steps:**
+
+1. Read the better-route flow first when behaviour is unclear:
+   `../better-route/README.md`, `src/Router/Router.php`,
+   `src/Router/RouteBuilder.php`, and `src/OpenApi/OpenApiExporter.php`.
+   Do not edit better-route unless the user explicitly asks for it.
+2. Use `BetterData\Route\BetterRouteBridge` as the integration seam.
+   The bridge is deliberately method-name based so better-data remains
+   installable without a hard Composer dependency on better-route.
+3. Preferred route → data flow:
+   `BetterRouteBridge::{get,post,put,patch,delete}($router, $uri,
+   Dto::class, $handler, $options)`. The bridge registers the route,
+   hydrates the request into the DTO, validates it, calls the handler
+   with `(DataObject $dto, mixed $request)`, and presents returned
+   `DataObject` values through `Presenter` with
+   `PresentationContext::rest()`.
+4. For URL-owned fields, always set `routeFields`, for example
+   `['id']`. Those values are merged from URL params and rejected from
+   JSON/body/query buckets via `RequestParamCollisionException`; this
+   is the route-side version of `RequestSource::noCollision()`.
+5. Let the bridge generate `RouteBuilder::args()` and better-route
+   `meta()` from `MetaKeyRegistry::toRestArgs()` /
+   `toJsonSchema()`. Use `BetterRouteBridge::openApiComponents()` when
+   passing DTO schemas into `BetterRoute::openApiExporter()`.
+6. Keep permission and middleware concerns route-owned. Pass
+   `permissionCallback` and `middlewares` through bridge options
+   rather than adding an auth abstraction to the data layer.
+7. Unit tests live in `tests/Unit/BetterRouteBridgeTest.php` with fake
+   Router/RouteBuilder/request objects. Do not require WordPress or
+   better-route to be installed for pure bridge tests. Add companion
+   plugin smoke/stress coverage only for live-WP behaviour.
+
+**Anti-patterns:**
+
+- Adding `better-route/better-route` as a hard runtime dependency of
+  better-data.
+- Reimplementing better-route's Resource DSL in better-data. The
+  bridge is for DTO request/response/schema composition, not another
+  router/resource layer.
+- Hydrating write routes from merged params while also accepting
+  route-owned fields like `id`. Use explicit `source` plus
+  `routeFields`.
+- Duplicating schema inference instead of reusing
+  `MetaKeyRegistry` / `RestSchemaBuilder`.
+- Returning raw `DataObject::toArray()` from new bridge code and
+  bypassing Presenter redaction.
+
+---
+
+## Skill 10 — Work on the companion plugin
 
 **Trigger:** changes under
 `wp-content/plugins/better-data-plugin-test/`.
@@ -403,7 +459,7 @@ typed values.
 
 ---
 
-## Skill 10 — Commit message shape
+## Skill 11 — Commit message shape
 
 **Trigger:** every commit.
 
